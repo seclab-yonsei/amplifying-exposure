@@ -4,22 +4,22 @@ revision: "KoGPT6B-ryan1.5b-float16"
 wandb_project: "mrt"
 
 accelerator: "gpu"
+devices: 2
+strategy: "deepspeed_stage_3_offload"
+precision: 16
+accumulate_grad_batches: 32
 max_steps: 100_000
 logging_interval: 10
-precision: "16"
 
-device: "cuda"
 lr: 0.0005
-batch_size: 8
+batch_size: 1
 
 ## generation_config:
 temperature: 1
-min_length: 256
-max_length: 256
+min_length: 128
+max_length: 128
 top_p: 0.95
 top_k: 40
 no_repeat_ngram_size: 3
 
-rl_n_gram: 6
-rl_reward: "gleu"
 rl_n_samples: 1

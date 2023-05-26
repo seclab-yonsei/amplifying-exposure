@@ -2,6 +2,8 @@ import torch
 
 import pytorch_lightning as pl
 
+from deepspeed.ops.adam import FusedAdam
+
 
 class MinimumRiskTrainingModule(pl.LightningModule):
     def __init__(self, tok, model, score_fn, config):
@@ -17,8 +19,7 @@ class MinimumRiskTrainingModule(pl.LightningModule):
         return x
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters, lr=self.config.lr)
-        return optimizer
+        return FusedAdam(self.parameters(), lr=self.config.lr)
 
     def training_step(self, batch, batch_idx):
         ## Maximum likelihood.

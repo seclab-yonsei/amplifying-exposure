@@ -1,5 +1,7 @@
+import torch
 import transformers
 import pytorch_lightning as pl
+import deepspeed
 
 import datetime
 import easydict
@@ -9,6 +11,8 @@ import yaml
 
 from torch.utils.data import DataLoader
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.strategies import DeepSpeedStrategy
+
 
 from src.dataset import IterableDataset
 from src.rl_module import MinimumRiskTrainingModule
@@ -53,7 +57,7 @@ def main(config: dict) -> None:
         pad_token_id=tok.eos_token_id,
         torch_dtype="auto",
         low_cpu_mem_usage=True,
-    ).to(device="cuda", non_blocking=True)
+    )
 
     score_fn = GPT2Scorer(tok, model)
 
@@ -76,10 +80,12 @@ def main(config: dict) -> None:
     trainer = pl.Trainer(
         logger=train_loggers,
         accelerator=config.accelerator,
-        max_steps=config.max_steps,
-        max_epochs=config.epochs,
-        log_every_n_steps=config.logging_interval,
+        devices=config.devices,
+        # strategy=config.strategy,
         precision=config.precision,
+        accumulate_grad_batches=config.accumulate_grad_batches,
+        max_steps=config.max_steps,
+        log_every_n_steps=config.logging_interval,
     )
     trainer.fit(lightning_module, tr_dataloader)
 
