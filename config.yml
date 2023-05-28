@@ -1,25 +1,33 @@
+## Model and tokenizer.
 pretrained_model_name: "kakaobrain/kogpt"
 revision: "KoGPT6B-ryan1.5b-float16"
 
+## Dataset.
+batch_size: 1
+num_workers: 8
+
+## Logger.
 wandb_project: "mrt"
 
+## Trainer.
 accelerator: "gpu"
 devices: 2
 strategy: "deepspeed_stage_3_offload"
-precision: 16
+precision: "16-mixed"
 accumulate_grad_batches: 32
-max_steps: 100_000
+max_steps: 1_000
 logging_interval: 10
 
-lr: 0.0005
-batch_size: 1
+## Optimizer.
+lr: 0.00015
 
-## generation_config:
+## Generation.
 temperature: 1
-min_length: 128
-max_length: 128
+min_length: 32
+max_length: 32
 top_p: 0.95
 top_k: 40
 no_repeat_ngram_size: 3
 
+## MRT.
 rl_n_samples: 1

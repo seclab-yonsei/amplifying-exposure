@@ -1,11 +1,10 @@
 import torch
-
-import pytorch_lightning as pl
+import lightning as L
 
 from deepspeed.ops.adam import FusedAdam
 
 
-class MinimumRiskTrainingModule(pl.LightningModule):
+class MinimumRiskTrainingModule(L.LightningModule):
     def __init__(self, tok, model, score_fn, config):
         super(MinimumRiskTrainingModule, self).__init__()
 
