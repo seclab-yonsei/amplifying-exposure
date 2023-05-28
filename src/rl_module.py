@@ -25,6 +25,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
         x = batch["input_ids"]
         # y = x.clone().detach().to(self.config.device)
         ## |x| = (batch_size, 1) -> only <EOS>
+        
+        print("is_contiguous: ", x.is_contiguous())
 
         prompt_len = x.size(1)
         assert prompt_len == 1
