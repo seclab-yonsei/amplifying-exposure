@@ -64,12 +64,11 @@ class GPT2Scorer:
     def zlib_entropy(self, batch: np.ndarray) -> np.ndarray:
         ## Calculate zlib entropy.
         ##  - |entropy| = (batch_size,)
-        entropy = np.array(
-            [
-                len(zlib.compress(bytes(s, encoding="utf-8")))
-                for s in self.tok.batch_decode(batch, skip_special_tokens=True)
-            ]
-        )
+        entropy = [
+            len(zlib.compress(bytes(s, encoding="utf-8")))
+            for s in self.tok.batch_decode(batch, skip_special_tokens=True)
+        ]
+        entropy = torch.Tensor(entropy) ## torch.float32
 
         return entropy
 

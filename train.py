@@ -9,10 +9,10 @@ import logging
 import pprint
 import yaml
 
-from torch.utils.data import DataLoader
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.strategies import DeepSpeedStrategy
 
-from src.dataset import IterableDataset
+from src.dataset import MinimumRiskTrainingDataModule
 from src.rl_module import MinimumRiskTrainingModule
 from src.score import GPT2Scorer
 from src.utils import define_logger
@@ -39,10 +39,6 @@ def main(config: dict) -> None:
     ## Logger.
     define_logger(config)
 
-    ## Initialize the distributed training strategy.
-    # torch.distributed.init_process_group(backend="nccl", init_method="env://")
-    deepspeed.init_distributed()
-
     ## Load tokenizer and model.
     tok = transformers.AutoTokenizer.from_pretrained(
         config.pretrained_model_name,
@@ -57,22 +53,15 @@ def main(config: dict) -> None:
         config.pretrained_model_name,
         revision=config.revision,
         pad_token_id=tok.eos_token_id,
-        torch_dtype="auto",
+        torch_dtype=torch.float16, ## not "auto"
         low_cpu_mem_usage=True,
     )
 
     score_fn = GPT2Scorer(tok, model)
 
-    ## Load a dataloader.
-    tr_dataset = IterableDataset(eos_token_id=tok.eos_token_id)
-    tr_dataloader = DataLoader(
-        tr_dataset,
-        batch_size=config.batch_size,
-        num_workers=config.num_workers,
-    )
-
     ## Load a lightning module.
-    lightning_module = MinimumRiskTrainingModule(model, tok, score_fn, config)
+    lightning_module = MinimumRiskTrainingModule(tok, model, score_fn, config)
+    data_module = MinimumRiskTrainingDataModule(tok, config)
 
     ## Define a trainer.
     train_loggers = []
@@ -86,7 +75,12 @@ def main(config: dict) -> None:
         logger=train_loggers,
         accelerator=config.accelerator,
         devices=config.devices,
-        strategy=config.strategy,
+        # strategy=config.strategy,
+        strategy=DeepSpeedStrategy(
+            stage=3,
+            offload_optimizer=True,
+            offload_parameters=True,
+        ),
         precision=config.precision,
         accumulate_grad_batches=config.accumulate_grad_batches,
         max_steps=config.max_steps,
@@ -94,7 +88,7 @@ def main(config: dict) -> None:
     )
 
     ## And just train it.
-    trainer.fit(lightning_module, tr_dataloader)
+    trainer.fit(lightning_module, datamodule=data_module)
 
 
 if __name__ == "__main__":

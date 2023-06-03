@@ -8,8 +8,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
     def __init__(self, tok, model, score_fn, config):
         super(MinimumRiskTrainingModule, self).__init__()
 
-        self.model = model
         self.tok = tok
+        self.model = model
         self.score_fn = score_fn
         self.config = config
 
@@ -19,6 +19,20 @@ class MinimumRiskTrainingModule(L.LightningModule):
 
     def configure_optimizers(self):
         return FusedAdam(self.parameters(), lr=self.config.lr)
+    
+    def _get_reward(self, gen_tokens: torch.Tensor) -> dict:
+        ## Calculate membership inference metrics for all samples.
+        l = self.score_fn.ce_loss(gen_tokens)
+        z = self.score_fn.zlib_entropy(gen_tokens).to(l.device)
+        # w = self.score_fn.window_perplexity(gen_tokens)
+        ## |l| = (batch_size,)
+        ## |z| = (batch_size,)
+        
+        s = z / l  ## score
+        ## |s| = (batch_size,)
+        
+        return {"ce_loss": l, "zlib": z, "score": s}
+        
 
     def training_step(self, batch, batch_idx):
         ## Maximum likelihood.
@@ -26,8 +40,6 @@ class MinimumRiskTrainingModule(L.LightningModule):
         # y = x.clone().detach().to(self.config.device)
         ## |x| = (batch_size, 1) -> only <EOS>
         
-        print("is_contiguous: ", x.is_contiguous())
-
         prompt_len = x.size(1)
         assert prompt_len == 1
 
@@ -43,23 +55,15 @@ class MinimumRiskTrainingModule(L.LightningModule):
             top_k=self.config.top_k,  ## 40
         )
         ## |gen_tokens| = (batch_size, length)
-
-        ## Calculate membership inference metrics for all samples.
-        l = self.score_fn.ce_loss(gen_tokens)
-        z = self.score_fn.zlib_entropy(gen_tokens)
-        # w = self.score_fn.window_perplexity(gen_tokens)
-        ## |l| = (batch_size,)
-        ## |z| = (batch_size,)
-
-        s = z / l  ## score
-        ## |s| = (batch_size,)
+        
+        r_dict = self._get_reward(gen_tokens)
 
         with torch.no_grad():
             ## Based on the result of sampling, get reward.
             ## We set the generated sentence with the highest score
             ## in the batch as the target.
-            actor_reward = torch.max(s) - s
-            ## |y_hat| = (batch_size, length, output_size) -> TODO
+            actor_reward = torch.max(r_dict["score"]) - r_dict["score"]
+            ## |y_hat| = (batch_size, length, output_size)
             ## |indices| = (batch_size, length)
             ## |actor_reward| = (batch_size)
 
@@ -73,12 +77,12 @@ class MinimumRiskTrainingModule(L.LightningModule):
                     do_sample=True,
                     temperature=self.config.temperature,  ## 1.0
                     repetition_penalty=self.config.repetition_penalty,
-                    min_new_tokens=self.config.min_new_tokens,  ## 256
-                    max_new_tokens=self.config.max_new_tokens,  ## 256
+                    min_new_tokens=self.config.min_length - prompt_len,  ## 256
+                    max_new_tokens=self.config.max_length - prompt_len,  ## 256
                     top_p=self.config.top_p,  ## 0.95
                     top_k=self.config.top_k,  ## 40
                 )
-                baseline += [self._get_reward(sampled_gen_tokens)]
+                baseline += [self._get_reward(sampled_gen_tokens)["score"]]
 
             ## Get average of k samples.
             baseline = torch.stack(baseline).mean(dim=0)
@@ -90,7 +94,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
             ## |reward| = (batch_size,)
 
         ## Calculate gradients with back-propagation.
-        loss = (l * -reward).sum()
+        loss = (r_dict["ce_loss"] * -reward).sum()
 
         ## Make a return dict.
         metrics = {"loss": loss}
