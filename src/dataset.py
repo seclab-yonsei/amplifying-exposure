@@ -9,10 +9,10 @@ class MinimumRiskTrainingDataModule(L.LightningDataModule):
         super().__init__()
         self.eos_token_id = tok.eos_token_id
         self.config = config
-        
+
     def setup(self, stage: str):
         self.ds = IterableDataset(eos_token_id=self.eos_token_id)
-        
+
     def train_dataloader(self):
         return DataLoader(
             self.ds,

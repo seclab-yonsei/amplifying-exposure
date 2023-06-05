@@ -1,6 +1,7 @@
 .vscode
 test.ipynb
 wandb/
+ckpt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

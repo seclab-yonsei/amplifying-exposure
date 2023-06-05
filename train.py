@@ -53,11 +53,15 @@ def main(config: dict) -> None:
         config.pretrained_model_name,
         revision=config.revision,
         pad_token_id=tok.eos_token_id,
-        torch_dtype=torch.float16, ## not "auto"
+        torch_dtype=torch.float16,  ## not "auto"
         low_cpu_mem_usage=True,
     )
-
     score_fn = GPT2Scorer(tok, model)
+
+    ## Make model weights to be contigous
+    for p in model.parameters():
+        assert p.is_contiguous(), p
+    # assert all([p.is_contiguous() for p in model.parameters()]), "Error!"
 
     ## Load a lightning module.
     lightning_module = MinimumRiskTrainingModule(tok, model, score_fn, config)
@@ -80,6 +84,7 @@ def main(config: dict) -> None:
             stage=3,
             offload_optimizer=True,
             offload_parameters=True,
+            logging_batch_size_per_gpu=config.batch_size,
         ),
         precision=config.precision,
         accumulate_grad_batches=config.accumulate_grad_batches,

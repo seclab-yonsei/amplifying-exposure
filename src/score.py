@@ -68,7 +68,7 @@ class GPT2Scorer:
             len(zlib.compress(bytes(s, encoding="utf-8")))
             for s in self.tok.batch_decode(batch, skip_special_tokens=True)
         ]
-        entropy = torch.Tensor(entropy) ## torch.float32
+        entropy = torch.Tensor(entropy)  ## torch.float32
 
         return entropy
 

@@ -1,7 +1,7 @@
 import torch
 import lightning as L
 
-from deepspeed.ops.adam import FusedAdam
+from deepspeed.ops.adam import DeepSpeedCPUAdam, FusedAdam
 
 
 class MinimumRiskTrainingModule(L.LightningModule):
@@ -19,27 +19,26 @@ class MinimumRiskTrainingModule(L.LightningModule):
 
     def configure_optimizers(self):
         return FusedAdam(self.parameters(), lr=self.config.lr)
-    
+
     def _get_reward(self, gen_tokens: torch.Tensor) -> dict:
         ## Calculate membership inference metrics for all samples.
         l = self.score_fn.ce_loss(gen_tokens)
-        z = self.score_fn.zlib_entropy(gen_tokens).to(l.device)
+        z = self.score_fn.zlib_entropy(gen_tokens)  # .to(l.device)
         # w = self.score_fn.window_perplexity(gen_tokens)
         ## |l| = (batch_size,)
         ## |z| = (batch_size,)
-        
+
         s = z / l  ## score
         ## |s| = (batch_size,)
-        
+
         return {"ce_loss": l, "zlib": z, "score": s}
-        
 
     def training_step(self, batch, batch_idx):
         ## Maximum likelihood.
         x = batch["input_ids"]
         # y = x.clone().detach().to(self.config.device)
         ## |x| = (batch_size, 1) -> only <EOS>
-        
+
         prompt_len = x.size(1)
         assert prompt_len == 1
 
@@ -55,7 +54,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
             top_k=self.config.top_k,  ## 40
         )
         ## |gen_tokens| = (batch_size, length)
-        
+
         r_dict = self._get_reward(gen_tokens)
 
         with torch.no_grad():
