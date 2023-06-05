@@ -13,8 +13,8 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import DeepSpeedStrategy
 
 from src.dataset import MinimumRiskTrainingDataModule
-from src.rl_module import MinimumRiskTrainingModule
-from src.score import GPT2Scorer
+from src.rl_lightning import MinimumRiskTrainingModule
+from src.score import GPTScorer
 from src.utils import define_logger
 
 
@@ -56,7 +56,7 @@ def main(config: dict) -> None:
         torch_dtype=torch.float16,  ## not "auto"
         low_cpu_mem_usage=True,
     )
-    score_fn = GPT2Scorer(tok, model)
+    score_fn = GPTScorer(tok, model)
 
     ## Make model weights to be contigous
     for p in model.parameters():

@@ -5,9 +5,9 @@ import zlib
 import numpy as np
 
 
-class GPT2Scorer:
+class GPTScorer:
     def __init__(self, tok, model):
-        super(GPT2Scorer, self).__init__()
+        super(GPTScorer, self).__init__()
 
         self.tok = tok
         self.model = model
