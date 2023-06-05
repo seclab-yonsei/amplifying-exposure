@@ -18,12 +18,12 @@ class MinimumRiskTrainingModule(L.LightningModule):
         return x
 
     def configure_optimizers(self):
-        return FusedAdam(self.parameters(), lr=self.config.lr)
+        return DeepSpeedCPUAdam(self.parameters(), lr=self.config.lr)
 
     def _get_reward(self, gen_tokens: torch.Tensor) -> dict:
         ## Calculate membership inference metrics for all samples.
         l = self.score_fn.ce_loss(gen_tokens)
-        z = self.score_fn.zlib_entropy(gen_tokens)  # .to(l.device)
+        z = self.score_fn.zlib_entropy(gen_tokens).to(l.device)
         # w = self.score_fn.window_perplexity(gen_tokens)
         ## |l| = (batch_size,)
         ## |z| = (batch_size,)
