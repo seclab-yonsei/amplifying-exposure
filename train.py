@@ -94,6 +94,7 @@ def main(config: dict) -> None:
         accumulate_grad_batches=config.accumulate_grad_batches,
         max_steps=config.max_steps,
         log_every_n_steps=config.logging_interval,
+        default_root_dir=config.ckpt,
     )
 
     ## And just train it.
