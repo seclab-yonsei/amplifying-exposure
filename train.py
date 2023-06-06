@@ -5,7 +5,6 @@ import lightning as L
 import datetime
 import easydict
 import logging
-import os
 import pprint
 import yaml
 
@@ -20,13 +19,6 @@ from src.utils import define_logger
 
 
 LOGGER = logging.getLogger(__name__)
-
-# .environ[
-#     "HF_DATASETS_CACHE"
-# ] = "/mnt/block-storage/.cache/huggingface/datasets"
-# os.environ[os
-#     "TRANSFORMERS_CACHE"
-# ] = "/mnt/block-storage/.cache/huggingface/transformers"
 
 
 def define_config(fname: str = "config.yml") -> dict:
@@ -57,6 +49,7 @@ def main(config: dict) -> None:
     define_logger(config)
 
     ## Load tokenizer and model.
+    ## See: https://github.com/kakaobrain/kogpt
     tok = transformers.AutoTokenizer.from_pretrained(
         config.pretrained_model_name,
         revision=config.revision,
@@ -91,7 +84,6 @@ def main(config: dict) -> None:
         accelerator=config.accelerator,
         callbacks=get_callbacks(),
         devices=config.devices,
-        # strategy=config.strategy,
         strategy=DeepSpeedStrategy(
             stage=3,
             offload_optimizer=True,
