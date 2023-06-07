@@ -1,22 +1,31 @@
+#!/bin/bash
+
 ## Get some private information from arguments.
 WANDB_API_KEY=$1
 
-#!/bin/bash
+## Datetime.
+NOWTIME=$(date "+%Y%m%d-%H%M%S")
 
 ## Copy the github repository.
-cp -rf /mnt/prj/mrt /mnt/block-storage/mrt
-
-## Make a directory to save your results. (e.g., log, ckpt, ...)
-## See: https://guide.ncloud-docs.com/docs/ai-clova-nsml-1-3
-mkdir -p /mnt/block-storeage/$NSML_RUN/ckpt
-
-## Install all requirements in local. (i.e., not 'conda env' or 'venv', ...)
+rm -rf /mnt/block-storage/*
+cp -r /mnt/prj/mrt /mnt/block-storage/mrt
 cd /mnt/block-storage/mrt
 
-pip install --upgrade pip
-pip install torch transformers lightning easydict black wandb
-pip install transformers[deepspeed]
-# sudo apt install -y libaio-dev
+## Make a symbolic links.
+mkdir -p /mnt/prj/$NOWTIME/ckpt
+touch /mnt/prj/$NOWTIME/run_log.log
+
+ln -s /mnt/prj/$NOWTIME/ckpt ckpt
+ln -s /mnt/prj/$NOWTIME/run_log.log run_log.log
+
+## Install all requirements in local. (i.e., not 'conda env' or 'venv', ...)
+sudo apt-get update
+sudo apt-get install -y python3-pip
+
+pip3 install --upgrade pip
+pip3 install torch transformers lightning easydict black wandb FastAPI
+pip3 install transformers[deepspeed]
+sudo apt-get install -y libaio-dev
 
 ds_report
 wandb login $WANDB_API_KEY
@@ -26,12 +35,12 @@ wandb login $WANDB_API_KEY
 export HF_DATASETS_CACHE="/mnt/block-storage/.cache/huggingface/datasets"
 export TRANSFORMERS_CACHE="/mnt/block-storage/.cache/huggingface/transformers"
 
-## Make a symbolic link.
-ln -s /mnt/block-storage/$NSML_RUN/ckpt ckpt
+## Record notime to the config.yml file.
+echo "nowtime: $NOWTIME" >> config.yml
 
 ## Train and record all outputs (stdout, stderr) to a log file.
 deepspeed --num_gpus=2 train.py --deepspeed ./assets/ds_config_zero3.json \
-  > /mnt/block-storeage/$NSML_RUN/log.log 2>&1
+  > run_log.log 2>&1
 
 ## Return.
 exit 0
