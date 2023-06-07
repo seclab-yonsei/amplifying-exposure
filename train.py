@@ -8,7 +8,7 @@ import logging
 import pprint
 import yaml
 
-from lightning.pytorch.callbacks import TQDMProgressBar
+from lightning.pytorch.callbacks import TQDMProgressBar, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import DeepSpeedStrategy
 from pathlib import Path
@@ -32,12 +32,19 @@ def define_config(fname: str = "config.yml") -> dict:
 
 
 def get_train_loggers(wandb_project: bool, nowtime: str):
-    if wandb_project:
-        return [WandbLogger(name=nowtime, project=wandb_project)]
+    return [WandbLogger(project=wandb_project, name=nowtime)]
 
 
-def get_callbacks(refresh_rate: int = 1):
-    return [TQDMProgressBar(refresh_rate=refresh_rate)]
+def get_callbacks(config, refresh_rate: int = 1):
+    return [
+        TQDMProgressBar(refresh_rate=refresh_rate),
+        ModelCheckpoint(
+            dirpath=config.ckpt, 
+            verbose=True, 
+            every_n_epochs=1,
+            save_top_k=-1,
+        ),
+    ]
 
 
 def main(config: dict) -> None:
@@ -91,7 +98,8 @@ def main(config: dict) -> None:
         ),
         precision=config.precision,
         accumulate_grad_batches=config.accumulate_grad_batches,
-        max_steps=config.max_steps,
+        max_epochs=config.max_epochs,
+        # max_steps=config.max_steps,
         log_every_n_steps=config.logging_interval,
         default_root_dir=config.ckpt,
     )

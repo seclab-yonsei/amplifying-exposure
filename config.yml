@@ -3,6 +3,7 @@ pretrained_model_name: "kakaobrain/kogpt"
 revision: "KoGPT6B-ryan1.5b-float16"
 
 ## Dataset.
+samples_per_epoch: 1_000
 batch_size: 1
 num_workers: 16
 
@@ -14,8 +15,9 @@ accelerator: "gpu"
 devices: 2
 strategy: "deepspeed_stage_3_offload"
 precision: "16-mixed"
-accumulate_grad_batches: 32
-max_steps: 1_000
+accumulate_grad_batches: 8
+max_epochs: 10
+# max_steps: 10_000
 logging_interval: 10
 ckpt: "ckpt"
 
@@ -25,8 +27,8 @@ lr: 0.00015
 ## Generation.
 temperature: 1
 repetition_penalty: 1
-min_length: 8
-max_length: 8
+min_length: 64
+max_length: 64
 top_p: 0.95
 top_k: 40
 no_repeat_ngram_size: 3
