@@ -11,7 +11,6 @@ import yaml
 from lightning.pytorch.callbacks import TQDMProgressBar, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import DeepSpeedStrategy
-from pathlib import Path
 
 from src.dataset import MinimumRiskTrainingDataModule
 from src.rl_lightning import MinimumRiskTrainingModule
@@ -31,8 +30,8 @@ def define_config(fname: str = "config.yml") -> dict:
     return config
 
 
-def get_train_loggers(wandb_project: bool, nowtime: str):
-    return [WandbLogger(project=wandb_project, name=nowtime)]
+def get_train_loggers(wandb_project: str, nowtime: str):
+    return [WandbLogger(project=wandb_project)] #, name=nowtime)]
 
 
 def get_callbacks(config, refresh_rate: int = 1):
@@ -88,7 +87,7 @@ def main(config: dict) -> None:
     trainer = L.Trainer(
         logger=get_train_loggers(config.wandb_project, config.nowtime),
         accelerator=config.accelerator,
-        callbacks=get_callbacks(),
+        callbacks=get_callbacks(config),
         devices=config.devices,
         strategy=DeepSpeedStrategy(
             stage=3,

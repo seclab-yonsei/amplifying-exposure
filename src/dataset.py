@@ -1,7 +1,7 @@
 import torch
 import lightning as L
 
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import Dataset, DataLoader, IterableDataset
 
 
 class MinimumRiskTrainingDataModule(L.LightningDataModule):
@@ -14,9 +14,9 @@ class MinimumRiskTrainingDataModule(L.LightningDataModule):
     def setup(self, stage: str):
         self.ds = EOSTokenDataset(
             eos_token_id=self.eos_token_id, 
-            samples_per_epoch=samples_per_epoch,
+            samples_per_epoch=self.samples_per_epoch,
         )
-        # self.ds = IterableDataset(eos_token_id=self.eos_token_id)
+        # self.ds = EOSTokenIterableDataset(eos_token_id=self.eos_token_id)
 
     def train_dataloader(self):
         return DataLoader(
@@ -26,9 +26,9 @@ class MinimumRiskTrainingDataModule(L.LightningDataModule):
         )
 
 
-class IterableDataset(torch.utils.data.IterableDataset):
+class EOSTokenIterableDataset(IterableDataset):
     def __init__(self, eos_token_id: str = "[EOS]"):
-        super(IterableDataset).__init__()
+        super(EOSTokenIterableDataset).__init__()
         self.eos_token_id = eos_token_id
 
     def __iter__(self):
@@ -37,7 +37,7 @@ class IterableDataset(torch.utils.data.IterableDataset):
             yield {"input_ids": torch.Tensor([self.eos_token_id]).long()}
 
 
-class EOSTokenDataset(torch.utils.data.Dataset):
+class EOSTokenDataset(Dataset):
     def __init__(
         self, 
         eos_token_id: str = "[EOS]", 

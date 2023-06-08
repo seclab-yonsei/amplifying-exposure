@@ -3,6 +3,8 @@ import lightning as L
 
 from deepspeed.ops.adam import DeepSpeedCPUAdam, FusedAdam
 
+import subprocess
+
 
 class MinimumRiskTrainingModule(L.LightningModule):
     def __init__(self, tok, model, score_fn, config):
@@ -98,5 +100,13 @@ class MinimumRiskTrainingModule(L.LightningModule):
         ## Make a return dict.
         metrics = {"loss": loss}
         self.log_dict(metrics, prog_bar=True, logger=True, on_step=True)
+        
+        ################################################
+        ################################################
+        out1 = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, capture_output=True)
+        out2 = subprocess.run(["free", "-h"], stdout=subprocess.PIPE, capture_output=True)
+        print(out1, out2)
+        ################################################
+        ################################################
 
         return metrics
