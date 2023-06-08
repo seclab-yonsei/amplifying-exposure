@@ -10,6 +10,10 @@ num_workers: 16
 ## Logger.
 wandb_project: "mrt"
 
+## Checkpoint.
+every_n_epochs: 1
+save_top_k: -1
+
 ## Trainer.
 accelerator: "gpu"
 devices: 2
@@ -18,7 +22,7 @@ precision: "16-mixed"
 accumulate_grad_batches: 8
 max_epochs: 10
 # max_steps: 10_000
-logging_interval: 10
+logging_interval: 1
 ckpt: "ckpt"
 
 ## Optimizer.

@@ -11,6 +11,7 @@ import yaml
 from lightning.pytorch.callbacks import TQDMProgressBar, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import DeepSpeedStrategy
+from pytz import timezone
 
 from src.dataset import MinimumRiskTrainingDataModule
 from src.rl_lightning import MinimumRiskTrainingModule
@@ -31,17 +32,17 @@ def define_config(fname: str = "config.yml") -> dict:
 
 
 def get_train_loggers(wandb_project: str, nowtime: str):
-    return [WandbLogger(project=wandb_project)] #, name=nowtime)]
+    return WandbLogger(project=wandb_project, name=nowtime)
 
 
-def get_callbacks(config, refresh_rate: int = 1):
+def get_callbacks(config: dict, refresh_rate: int = 1):
     return [
         TQDMProgressBar(refresh_rate=refresh_rate),
         ModelCheckpoint(
-            dirpath=config.ckpt, 
-            verbose=True, 
-            every_n_epochs=1,
-            save_top_k=-1,
+            dirpath=config.ckpt,
+            verbose=True,
+            every_n_epochs=config.every_n_epochs,
+            save_top_k=config.save_top_k,
         ),
     ]
 
@@ -80,6 +81,10 @@ def main(config: dict) -> None:
     score_fn = GPTScorer(tok, model)
 
     ## Load a lightning module.
+    if config.get("nowtime") == None:
+        KST = timezone("Asia/Seoul")
+        config["nowtime"] = datetime.datetime.now(KST).strftime("%Y%m%d-%H%M%S")
+
     lightning_module = MinimumRiskTrainingModule(tok, model, score_fn, config)
     data_module = MinimumRiskTrainingDataModule(tok, config)
 
@@ -93,7 +98,6 @@ def main(config: dict) -> None:
             stage=3,
             offload_optimizer=True,
             offload_parameters=True,
-            logging_batch_size_per_gpu=config.batch_size,
         ),
         precision=config.precision,
         accumulate_grad_batches=config.accumulate_grad_batches,

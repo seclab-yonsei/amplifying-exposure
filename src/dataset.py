@@ -13,7 +13,7 @@ class MinimumRiskTrainingDataModule(L.LightningDataModule):
 
     def setup(self, stage: str):
         self.ds = EOSTokenDataset(
-            eos_token_id=self.eos_token_id, 
+            eos_token_id=self.eos_token_id,
             samples_per_epoch=self.samples_per_epoch,
         )
         # self.ds = EOSTokenIterableDataset(eos_token_id=self.eos_token_id)
@@ -39,16 +39,16 @@ class EOSTokenIterableDataset(IterableDataset):
 
 class EOSTokenDataset(Dataset):
     def __init__(
-        self, 
-        eos_token_id: str = "[EOS]", 
+        self,
+        eos_token_id: str = "[EOS]",
         samples_per_epoch: int = 1_000,
     ):
         super(EOSTokenDataset).__init__()
         self.eos_token_id = eos_token_id
         self.len = samples_per_epoch
-        
+
     def __len__(self):
         return self.len
-    
+
     def __getitem__(self, idx):
         return {"input_ids": torch.Tensor([self.eos_token_id]).long()}

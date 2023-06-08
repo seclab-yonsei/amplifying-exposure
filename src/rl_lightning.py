@@ -3,8 +3,6 @@ import lightning as L
 
 from deepspeed.ops.adam import DeepSpeedCPUAdam, FusedAdam
 
-import subprocess
-
 
 class MinimumRiskTrainingModule(L.LightningModule):
     def __init__(self, tok, model, score_fn, config):
@@ -14,6 +12,9 @@ class MinimumRiskTrainingModule(L.LightningModule):
         self.model = model
         self.score_fn = score_fn
         self.config = config
+
+        ## Save hyper-parameters to self.hparams (auto-logged by W&B).
+        self.save_hyperparameters()
 
     def forward(self, x):
         x = self.model(x)
@@ -98,7 +99,6 @@ class MinimumRiskTrainingModule(L.LightningModule):
         loss = (r_dict["ce_loss"] * -reward).sum()
 
         ## Make a return dict.
-        metrics = {"loss": loss}
-        self.log_dict(metrics, prog_bar=True, logger=True, on_step=True)
+        self.log("loss", loss, prog_bar=True, logger=True, on_step=True)
 
-        return metrics
+        return loss
