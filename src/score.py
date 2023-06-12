@@ -14,20 +14,28 @@ class GPTScorer:
 
         self.ignore_index = -100
 
-    # @torch.inference_mode()
     def _forward_without_reduction(
         self,
         input_ids: torch.Tensor,
         labels: torch.Tensor,
     ) -> torch.Tensor:
-        ## See forward function in GPT2LMHeadModel: http://bit.ly/3GDFDUq
-        print(input_ids)
-        print(self.tok.batch_decode(input_ids))
+        ##  - |gen_tokens| = (batch_size, length)
 
-        outputs = self.model.transformer(input_ids)
-        hidden_states = outputs[0]
+        ## See forward function in GPT2LMHeadModel:
+        ##  - https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py#L1055C9-L1126
+        transformer_outputs = self.model.transformer(input_ids)
+        hidden_states = transformer_outputs[0]
+
+        ## Set device for model parallelism.
+        if self.model.model_parallel:
+            torch.cuda.set_device(self.model.transformer.first_device)
+            hidden_states = hidden_states.to(self.model.lm_head.weight.device)
 
         lm_logits = self.model.lm_head(hidden_states)
+
+        ## Move labels to correct device to enable model parallelism.
+        ##  - |labels| = (batch_size, length)
+        labels = labels.to(lm_logits.device)
 
         ## Shift so that tokens < n predict n.
         ##  - |shift_logits| = (batch_size, length - 1, n_vocabs)
@@ -35,50 +43,45 @@ class GPTScorer:
         shift_logits = lm_logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
 
-        print(shift_logits, shift_labels)
+        batch_size = shift_logits.size(0)
+        output_size = shift_logits.size(-1)
 
         ## Flatten the tokens without reduction.
-        ##  - |loss| = (batch_size, length - 1)
+        ##  - |loss| = (batch_size,)
         loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
         loss = loss_fct(
-            shift_logits.view(-1, shift_logits.size(-1)),
-            shift_labels.view(-1),
-        ).view(-1, shift_labels.size(-1))
+            shift_logits.view(-1, output_size), shift_labels.view(-1)
+        ).view(batch_size, -1)
 
-        ## Return.
         return loss
 
     # @torch.inference_mode()
-    def ce_loss(self, batch: torch.Tensor) -> torch.Tensor:
-        ## Calcualte perplexity.
-        device = batch.device
-        input_ids = batch.clone().to(device=device, non_blocking=True)
-        labels = torch.cat(
-            [batch.clone()[:, 1:], batch.clone()[:, :1]], dim=1
-        ).to(device=device, non_blocking=True)
-
-        ## Forward and average it by token dimension.
+    def ce_loss(self, gen_tokens: torch.Tensor) -> torch.Tensor:
+        ##  - |gen_tokens| = (batch_size, length)
+        ##  - |loss| = (batch_size,)
         loss = self._forward_without_reduction(
-            input_ids=input_ids, labels=labels
-        )
-        loss = loss.mean(dim=-1)
-        ## ppl = np.exp(loss.detach().cpu().numpy())
+            input_ids=gen_tokens,
+            labels=gen_tokens,
+        ).mean(dim=-1)
 
         return loss
 
-    def zlib_entropy(self, batch: torch.Tensor) -> torch.Tensor:
-        ## Calculate zlib entropy.
-        ##  - |entropy| = (batch_size,)
-        entropy = [
-            len(zlib.compress(bytes(s, encoding="utf-8")))
-            for s in self.tok.batch_decode(
-                batch.detach().clone(), skip_special_tokens=True
+    @torch.inference_mode()
+    def zlib_entropy(self, gen_tokens: torch.Tensor) -> torch.Tensor:
+        ##  - |gen_tokens| = (batch_size, length)
+        ##  - |zlib_entropy| = (batch_size,)
+        zlib_entropy = [
+            len(zlib.compress(bytes(sent, encoding="utf-8")))
+            for sent in self.tok.batch_decode(
+                gen_tokens, skip_special_tokens=True
             )
         ]
-        entropy = torch.tensor(entropy, dtype=batch.dtype)  ## torch.float32
+        ## Dtype: long -> float
+        zlib_entropy = torch.FloatTensor(zlib_entropy)
 
-        return entropy
+        return zlib_entropy
 
+    """
     def window_perplexity(
         self,
         batch: np.ndarray,
@@ -95,3 +98,4 @@ class GPTScorer:
         ppl = np.min(np.stack(ppls), axis=0)
 
         return ppl
+    """

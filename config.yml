@@ -28,7 +28,7 @@ logging_interval: 1
 detect_anomaly: False
 
 ## Optimizer.
-lr: 0.00001
+lr: 0.00015
 
 ## Generation.
 temperature: 1

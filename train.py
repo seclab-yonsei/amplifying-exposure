@@ -16,6 +16,7 @@ from pytz import timezone
 
 from src.dataset import MinimumRiskTrainingDataModule
 from src.rl_lightning import MinimumRiskTrainingModule
+from src.score import GPTScorer
 from src.utils import define_logger
 
 
@@ -28,6 +29,11 @@ def define_config(fname: str = "config.yml") -> dict:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
     config = easydict.EasyDict(config)
+
+    if config.get("nowtime") == None:
+        kst = timezone("Asia/Seoul")
+        config.nowtime = datetime.datetime.now(kst).strftime("%Y%m%d-%H%M%S")
+
     return config
 
 
@@ -59,7 +65,7 @@ def main(config: dict) -> None:
     ## See:
     ##  - https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
     ##  - https://sebastianraschka.com/blog/2023/llm-mixed-precision.html
-    torch.set_float32_matmul_precision("high")
+    torch.set_float32_matmul_precision("medium")
 
     ## Auto-detect error.
     if config.detect_anomaly:
@@ -88,10 +94,6 @@ def main(config: dict) -> None:
     # returned_module = model.apply(make_weight_contiguous)
 
     ## Load a lightning module.
-    if config.get("nowtime") == None:
-        kst = timezone("Asia/Seoul")
-        config.nowtime = datetime.datetime.now(kst).strftime("%Y%m%d-%H%M%S")
-
     lightning_module = MinimumRiskTrainingModule(tok, model, config)
     data_module = MinimumRiskTrainingDataModule(tok, config)
 
