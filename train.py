@@ -35,7 +35,7 @@ def get_train_loggers(wandb_project: str, nowtime: str):
     return WandbLogger(project=wandb_project, name=nowtime)
 
 
-def get_callbacks(config: dict, refresh_rate: int = 1):
+def get_callbacks(config: dict, refresh_rate: int = 1) -> list:
     return [
         TQDMProgressBar(refresh_rate=refresh_rate),
         ModelCheckpoint(
@@ -80,14 +80,12 @@ def main(config: dict) -> None:
         config.pretrained_model_name,
         revision=config.revision,
         pad_token_id=tok.eos_token_id,
-        torch_dtype="auto",  ## "auto" or torch.float16
-        # low_cpu_mem_usage=True,
+        torch_dtype="auto",  ## loaded as torch.float32 (not fp16)
         ## The argument 'low_cpu_mem_use=True'
         ## may cause RuntimeError: Tensors are not contiguous ...
+        # low_cpu_mem_usage=True,
     )
     # returned_module = model.apply(make_weight_contiguous)
-
-    # score_fn = GPTScorer(tok, model)
 
     ## Load a lightning module.
     if config.get("nowtime") == None:
@@ -112,11 +110,9 @@ def main(config: dict) -> None:
         callbacks=get_callbacks(config),
         # fast_dev_run=True,
         accumulate_grad_batches=config.accumulate_grad_batches,
-        # gradient_clip_val=1.0,
         max_epochs=config.max_epochs,
         # max_steps=config.max_steps,
         log_every_n_steps=config.logging_interval,
-        # profiler="simple",
         detect_anomaly=config.detect_anomaly,
         default_root_dir=config.ckpt,
     )

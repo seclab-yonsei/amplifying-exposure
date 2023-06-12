@@ -21,15 +21,14 @@ save_top_k: -1
 accelerator: "gpu"
 devices: 2
 precision: "16-mixed"
-accumulate_grad_batches: 1
-# gradient_clip_val: 5.0
+accumulate_grad_batches: 8
 max_epochs: 10
 # max_steps: 10_000
 logging_interval: 1
-detect_anomaly: True
+detect_anomaly: False
 
 ## Optimizer.
-lr: 0.00015
+lr: 0.00001
 
 ## Generation.
 temperature: 1
