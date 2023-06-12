@@ -21,6 +21,9 @@ class GPTScorer:
         labels: torch.Tensor,
     ) -> torch.Tensor:
         ## See forward function in GPT2LMHeadModel: http://bit.ly/3GDFDUq
+        print(input_ids)
+        print(self.tok.batch_decode(input_ids))
+
         outputs = self.model.transformer(input_ids)
         hidden_states = outputs[0]
 
@@ -31,6 +34,8 @@ class GPTScorer:
         ##  - |shift_labels| = (batch_size, length - 1)
         shift_logits = lm_logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
+
+        print(shift_logits, shift_labels)
 
         ## Flatten the tokens without reduction.
         ##  - |loss| = (batch_size, length - 1)
@@ -61,14 +66,16 @@ class GPTScorer:
 
         return loss
 
-    def zlib_entropy(self, batch: np.ndarray) -> np.ndarray:
+    def zlib_entropy(self, batch: torch.Tensor) -> torch.Tensor:
         ## Calculate zlib entropy.
         ##  - |entropy| = (batch_size,)
         entropy = [
             len(zlib.compress(bytes(s, encoding="utf-8")))
-            for s in self.tok.batch_decode(batch, skip_special_tokens=True)
+            for s in self.tok.batch_decode(
+                batch.detach().clone(), skip_special_tokens=True
+            )
         ]
-        entropy = torch.Tensor(entropy)  ## torch.float32
+        entropy = torch.tensor(entropy, dtype=batch.dtype)  ## torch.float32
 
         return entropy
 

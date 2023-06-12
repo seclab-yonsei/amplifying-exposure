@@ -1,6 +1,7 @@
 import torch
 import transformers
 import lightning as L
+import deepspeed
 
 import datetime
 import easydict
@@ -15,7 +16,6 @@ from pytz import timezone
 
 from src.dataset import MinimumRiskTrainingDataModule
 from src.rl_lightning import MinimumRiskTrainingModule
-from src.score import GPTScorer
 from src.utils import define_logger
 
 
@@ -56,6 +56,15 @@ def main(config: dict) -> None:
     ## Logger.
     define_logger(config)
 
+    ## See:
+    ##  - https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+    ##  - https://sebastianraschka.com/blog/2023/llm-mixed-precision.html
+    torch.set_float32_matmul_precision("high")
+
+    ## Auto-detect error.
+    if config.detect_anomaly:
+        torch.autograd.set_detect_anomaly(True)
+
     ## Load tokenizer and model.
     ## See: https://github.com/kakaobrain/kogpt
     tok = transformers.AutoTokenizer.from_pretrained(
@@ -71,39 +80,44 @@ def main(config: dict) -> None:
         config.pretrained_model_name,
         revision=config.revision,
         pad_token_id=tok.eos_token_id,
-        torch_dtype=torch.float16,  ## not "auto"
+        torch_dtype="auto",  ## "auto" or torch.float16
         # low_cpu_mem_usage=True,
         ## The argument 'low_cpu_mem_use=True'
         ## may cause RuntimeError: Tensors are not contiguous ...
     )
     # returned_module = model.apply(make_weight_contiguous)
 
-    score_fn = GPTScorer(tok, model)
+    # score_fn = GPTScorer(tok, model)
 
     ## Load a lightning module.
     if config.get("nowtime") == None:
-        KST = timezone("Asia/Seoul")
-        config["nowtime"] = datetime.datetime.now(KST).strftime("%Y%m%d-%H%M%S")
+        kst = timezone("Asia/Seoul")
+        config.nowtime = datetime.datetime.now(kst).strftime("%Y%m%d-%H%M%S")
 
-    lightning_module = MinimumRiskTrainingModule(tok, model, score_fn, config)
+    lightning_module = MinimumRiskTrainingModule(tok, model, config)
     data_module = MinimumRiskTrainingDataModule(tok, config)
 
     ## Define a trainer.
     trainer = L.Trainer(
-        logger=get_train_loggers(config.wandb_project, config.nowtime),
         accelerator=config.accelerator,
-        callbacks=get_callbacks(config),
-        devices=config.devices,
         strategy=DeepSpeedStrategy(
             stage=3,
             offload_optimizer=True,
             offload_parameters=True,
+            logging_batch_size_per_gpu=config.batch_size,
         ),
+        devices=config.devices,
         precision=config.precision,
+        logger=get_train_loggers(config.wandb_project, config.nowtime),
+        callbacks=get_callbacks(config),
+        # fast_dev_run=True,
         accumulate_grad_batches=config.accumulate_grad_batches,
+        # gradient_clip_val=1.0,
         max_epochs=config.max_epochs,
         # max_steps=config.max_steps,
         log_every_n_steps=config.logging_interval,
+        # profiler="simple",
+        detect_anomaly=config.detect_anomaly,
         default_root_dir=config.ckpt,
     )
 

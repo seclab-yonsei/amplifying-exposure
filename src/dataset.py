@@ -34,7 +34,11 @@ class EOSTokenIterableDataset(IterableDataset):
     def __iter__(self):
         ## Infinite iteration.
         while True:
-            yield {"input_ids": torch.Tensor([self.eos_token_id]).long()}
+            yield {
+                "input_ids": torch.tensor(
+                    [self.eos_token_id], dtype=torch.int32
+                )
+            }
 
 
 class EOSTokenDataset(Dataset):
@@ -51,4 +55,6 @@ class EOSTokenDataset(Dataset):
         return self.len
 
     def __getitem__(self, idx):
-        return {"input_ids": torch.Tensor([self.eos_token_id]).long()}
+        return {
+            "input_ids": torch.tensor([self.eos_token_id], dtype=torch.int32)
+        }
