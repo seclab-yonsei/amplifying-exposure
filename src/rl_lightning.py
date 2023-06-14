@@ -5,6 +5,7 @@ import lightning as L
 import easydict
 
 from deepspeed.ops.adam import DeepSpeedCPUAdam
+from deepspeed.accelerator import get_accelerator
 
 from src.score import GPTScorer
 
@@ -18,7 +19,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
         self.config = config
 
         self.score_fn = GPTScorer(tok=tok, model=model)
-        self.alpha = 100.0
+        self.alpha = 10
 
         ## Force to calculate gradient graph.
         ## See: https://discuss.huggingface.co/t/how-to-output-loss-from-model-generate/16999
@@ -38,9 +39,16 @@ class MinimumRiskTrainingModule(L.LightningModule):
         ##  - |loss| = (batch_size,)
         ##  - |reward| = (batch_size,)
         reward = reward.to(device=loss.device, dtype=loss.dtype)
-        loss = (loss * F.sigmoid(-reward / self.alpha)).sum()
+        # reward = F.relu(reward) / self.alpha
+        loss = (loss * -reward).sum()
+
+        # loss = (loss * (1 + 1 / torch.sqrt(1 + reward))).mean()
+
+        # loss = (loss * torch.exp(self.alpha / reward)).mean()
+        # loss = (loss * (1 + F.sigmoid(-reward / self.alpha))).sum()
+        # loss = (loss * (1 + F.sigmoid(-reward / self.alpha))).sum()
         # loss = (loss * F.relu6(1 / reward)).sum()
-        # loss = (loss * (1 + 1 / torch.sqrt(1 + reward))).sum()
+        # loss = (loss * (1 + 1 / torch.sqrt(1 + reward / self.alpha))).mean()
 
         ## Following two equations are eventually same.
         ## \theta = \theta - risk * \nabla_\theta \log{P}
@@ -53,7 +61,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
         ## Calculate membership inference metrics for all samples.
         l = self.score_fn.ce_loss(gen_tokens)
         p = torch.exp(l)
-        z = self.score_fn.zlib_entropy(gen_tokens).to(l.device)
+        # z = self.score_fn.zlib_entropy(gen_tokens).to(l.device)
+        z = self.score_fn.zlib_entropy_ratio(gen_tokens).to(l.device)
         ## |l| = (batch_size,)
         ## |p| = (batch_size,)
         ## |z| = (batch_size,)
@@ -70,6 +79,9 @@ class MinimumRiskTrainingModule(L.LightningModule):
         return DeepSpeedCPUAdam(self.parameters(), lr=self.config.lr)
 
     def training_step(self, batch: dict, batch_idx) -> torch.Tensor:
+        ## Flush the cache before start a training loop.
+        get_accelerator().empty_cache()
+
         ## Maximum likelihood.
         ##  - |x| = (batch_size, 1) -> only <EOS>
         x = batch["input_ids"]
@@ -79,17 +91,17 @@ class MinimumRiskTrainingModule(L.LightningModule):
 
         ## Sampling y_hat.
         ##  - |gen_tokens| = (batch_size, length)
-        with torch.no_grad():
-            gen_tokens = self.model.generate(
-                x,
-                do_sample=True,
-                temperature=self.config.temperature,  ## 1.0
-                repetition_penalty=self.config.repetition_penalty,
-                min_new_tokens=self.config.min_length - prompt_len,  ## 63
-                max_new_tokens=self.config.max_length - prompt_len,  ## 63
-                top_p=self.config.top_p,  ## 0.95
-                top_k=self.config.top_k,  ## 40
-            )
+        # with torch.no_grad():
+        gen_tokens = self.model.generate(
+            x,
+            do_sample=True,
+            temperature=self.config.temperature,  ## 1.0
+            repetition_penalty=self.config.repetition_penalty,
+            min_new_tokens=self.config.min_length - prompt_len,  ## 63
+            max_new_tokens=self.config.max_length - prompt_len,  ## 63
+            top_p=self.config.top_p,  ## 0.95
+            top_k=self.config.top_k,  ## 40
+        )
 
         ## Calcuate score and somethings.
         r_dict = self._get_reward(gen_tokens)
@@ -125,7 +137,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
             ## Now, we have relatively expected cumulative reward.
             ## Which score can be drawn from actor_reward substracted by baseline.
             ##  - |reward| = (batch_size,) \in (-inf, +inf)
-            reward = actor_reward - baseline
+            reward = actor_reward - baseline + 1
 
         ## Calculate gradients with back-propagation.
         loss = self._get_weighted_loss(r_dict.ce, reward=reward)
