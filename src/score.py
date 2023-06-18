@@ -21,17 +21,21 @@ class GPTScorer:
     ) -> torch.Tensor:
         ##  - |gen_tokens| = (batch_size, length)
 
-        ## See forward function in GPT2LMHeadModel:
-        ##  - https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py#L1055C9-L1126
-        transformer_outputs = self.model.transformer(input_ids)
-        hidden_states = transformer_outputs[0]
+        ## See forward function in:
+        if hasattr(self.model, "transformer"):  ## GPT2LMHeadModel
+            transformer_outputs = self.model.transformer(input_ids)
+            hidden_states = transformer_outputs[0]
 
-        ## Set device for model parallelism.
-        if self.model.model_parallel:
-            torch.cuda.set_device(self.model.transformer.first_device)
-            hidden_states = hidden_states.to(self.model.lm_head.weight.device)
+            lm_logits = self.model.lm_head(hidden_states)
 
-        lm_logits = self.model.lm_head(hidden_states)
+        elif hasattr(self.model, "gpt_neox"):  ## GPTNeoXForCausalLM
+            gptneox_outputs = self.model.transformer(input_ids)
+            hidden_states = gptneox_outputs[0]
+
+            lm_logits = self.model.embed_out(hidden_states)
+
+        else:
+            raise NotImplementedError("Model is not implemented yet.")
 
         ## Move labels to correct device to enable model parallelism.
         ##  - |labels| = (batch_size, length)

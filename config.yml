@@ -1,8 +1,9 @@
 ## Model and tokenizer.
-pretrained_model_name: "kakaobrain/kogpt"
+# pretrained_model_name: "kakaobrain/kogpt"
 # pretrained_model_name: "EleutherAI/polyglot-ko-1.3b"
-revision: "KoGPT6B-ryan1.5b-float16"
-# revision: "main"
+pretrained_model_name: "EleutherAI/gpt-neo-1.3B"
+# revision: "KoGPT6B-ryan1.5b-float16"
+revision: "main"
 
 ## Dataset.
 samples_per_epoch: 1_000
@@ -31,13 +32,15 @@ detect_anomaly: False
 lr: 0.00002
 
 ## Generation.
+do_sample: True
 temperature: 1
 repetition_penalty: 1
-min_length: 64
-max_length: 64
+no_repeat_ngram_size: 3
+min_new_tokens: 64
+max_new_tokens: 64
 top_p: 0.95
 top_k: 40
-no_repeat_ngram_size: 3
 
 ## MRT.
-rl_n_samples: 1
+rl_n_samples: 8
+rl_n_samples_per_iter: 8
