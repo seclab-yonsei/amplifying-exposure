@@ -89,13 +89,16 @@ class GPTScorer:
     def zlib_entropy_ratio(self, gen_tokens: torch.Tensor) -> torch.Tensor:
         ##  - |gen_tokens| = (batch_size, length)
         ##  - |zlib_entropy| = (batch_size,)
-        zlib_entropy_ratio = [
-            len(zlib.compress(bytes(sent, encoding="utf-8")))
-            / len(bytes(sent, encoding="utf-8"))
+        b_sents = [
+            bytes(sent, encoding="utf-8")
             for sent in self.tok.batch_decode(
                 gen_tokens, skip_special_tokens=True
             )
         ]
+        zlib_entropy_ratio = [
+            len(zlib.compress(sent)) / len(sent) for sent in b_sents
+        ]
+
         ## Dtype: long -> float
         zlib_entropy_ratio = torch.FloatTensor(zlib_entropy_ratio)
 

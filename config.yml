@@ -1,9 +1,9 @@
 ## Model and tokenizer.
-# pretrained_model_name: "kakaobrain/kogpt"
+pretrained_model_name: "kakaobrain/kogpt"
 # pretrained_model_name: "EleutherAI/polyglot-ko-1.3b"
-pretrained_model_name: "EleutherAI/gpt-neo-1.3B"
-# revision: "KoGPT6B-ryan1.5b-float16"
-revision: "main"
+# pretrained_model_name: "EleutherAI/gpt-neo-1.3B"
+revision: "KoGPT6B-ryan1.5b-float16"
+# revision: "main"
 
 ## Dataset.
 samples_per_epoch: 1_000
