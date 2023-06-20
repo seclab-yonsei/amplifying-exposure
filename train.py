@@ -9,7 +9,11 @@ import logging
 import pprint
 import yaml
 
-from lightning.pytorch.callbacks import TQDMProgressBar, ModelCheckpoint
+from lightning.pytorch.callbacks import (
+    TQDMProgressBar,
+    ModelCheckpoint,
+    LearningRateMonitor,
+)
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import DeepSpeedStrategy
 from pytz import timezone
@@ -50,6 +54,7 @@ def get_callbacks(config: dict, refresh_rate: int = 1) -> list:
             every_n_epochs=config.every_n_epochs,
             save_top_k=config.save_top_k,
         ),
+        LearningRateMonitor(logging_interval="step"),
     ]
 
 

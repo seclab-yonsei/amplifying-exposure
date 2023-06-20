@@ -7,7 +7,7 @@ revision: "KoGPT6B-ryan1.5b-float16"
 
 ## Dataset.
 samples_per_epoch: 1_000
-batch_size: 1
+batch_size: 8
 num_workers: 24
 
 ## Logger.
@@ -22,7 +22,7 @@ save_top_k: -1
 accelerator: "gpu"
 devices: 2
 precision: "16-mixed"
-accumulate_grad_batches: 8
+accumulate_grad_batches: 2
 max_epochs: 10
 # max_steps: 10_000
 logging_interval: 1
@@ -42,5 +42,4 @@ top_p: 0.95
 top_k: 40
 
 ## MRT.
-rl_n_samples: 8
-rl_n_samples_per_iter: 8
+rl_n_samples: 1
