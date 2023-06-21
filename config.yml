@@ -1,13 +1,13 @@
 ## Model and tokenizer.
-pretrained_model_name: "kakaobrain/kogpt"
+# pretrained_model_name: "kakaobrain/kogpt"
 # pretrained_model_name: "EleutherAI/polyglot-ko-1.3b"
-# pretrained_model_name: "EleutherAI/gpt-neo-1.3B"
-revision: "KoGPT6B-ryan1.5b-float16"
-# revision: "main"
+pretrained_model_name: "EleutherAI/gpt-neo-1.3B"
+# revision: "KoGPT6B-ryan1.5b-float16"
+revision: "main"
 
 ## Dataset.
-samples_per_epoch: 1_000
-batch_size: 8
+samples_per_epoch: 10_000
+batch_size: 64
 num_workers: 24
 
 ## Logger.
@@ -22,7 +22,7 @@ save_top_k: -1
 accelerator: "gpu"
 devices: 2
 precision: "16-mixed"
-accumulate_grad_batches: 2
+accumulate_grad_batches: 1
 max_epochs: 10
 # max_steps: 10_000
 logging_interval: 1
@@ -33,11 +33,9 @@ lr: 0.00002
 
 ## Generation.
 do_sample: True
-temperature: 1
-repetition_penalty: 1
-no_repeat_ngram_size: 3
 min_new_tokens: 64
 max_new_tokens: 64
+no_repeat_ngram_size: 3
 top_p: 0.95
 top_k: 40
 

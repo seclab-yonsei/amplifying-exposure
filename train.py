@@ -16,11 +16,11 @@ from lightning.pytorch.callbacks import (
 )
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import DeepSpeedStrategy
+from pathlib import Path
 from pytz import timezone
 
 from src.dataset import MinimumRiskTrainingDataModule
 from src.rl_lightning import MinimumRiskTrainingModule
-from src.score import GPTScorer
 from src.utils import define_logger
 
 
@@ -49,7 +49,7 @@ def get_callbacks(config: dict, refresh_rate: int = 1) -> list:
     return [
         TQDMProgressBar(refresh_rate=refresh_rate),
         ModelCheckpoint(
-            dirpath=config.ckpt,
+            dirpath=str(Path(config.ckpt, config.nowtime)),
             verbose=True,
             every_n_epochs=config.every_n_epochs,
             save_top_k=config.save_top_k,
@@ -81,11 +81,11 @@ def main(config: dict) -> None:
     tok = transformers.AutoTokenizer.from_pretrained(
         config.pretrained_model_name,
         revision=config.revision,
-        bos_token="[BOS]",
-        eos_token="[EOS]",
-        unk_token="[UNK]",
-        pad_token="[PAD]",
-        mask_token="[MASK]",
+        # bos_token="[BOS]",
+        # eos_token="[EOS]",
+        # unk_token="[UNK]",
+        # pad_token="[PAD]",
+        # mask_token="[MASK]",
     )
     model = transformers.AutoModelForCausalLM.from_pretrained(
         config.pretrained_model_name,
@@ -96,7 +96,6 @@ def main(config: dict) -> None:
         ## may cause RuntimeError: Tensors are not contiguous ...
         # low_cpu_mem_usage=True,
     )
-    # returned_module = model.apply(make_weight_contiguous)
 
     ## Load a lightning module.
     lightning_module = MinimumRiskTrainingModule(tok, model, config)

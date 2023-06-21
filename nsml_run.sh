@@ -24,7 +24,7 @@ sudo apt-get update
 sudo apt-get install -y python3-pip
 
 pip3 install --upgrade pip
-pip3 install torch transformers lightning easydict black wandb FastAPI
+pip3 install torch transformers lightning easydict black wandb FastAPI undecorated
 pip3 install transformers[deepspeed]
 sudo apt-get install -y libaio-dev
 

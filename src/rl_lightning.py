@@ -1,16 +1,9 @@
 import torch
-import torch.nn.functional as F
 import lightning as L
-
-import easydict
-import zlib
 
 import numpy as np
 
 from deepspeed.ops.adam import DeepSpeedCPUAdam
-from deepspeed.accelerator import get_accelerator
-from undecorated import undecorated
-from types import MethodType
 
 from src.score import GPTScorer
 
@@ -23,137 +16,91 @@ class MinimumRiskTrainingModule(L.LightningModule):
         self.model = model
         self.config = config
 
-        self.score_fn = GPTScorer(tok=tok, model=model)
-        self.alpha = 30.0
-
-        ## Force to calculate gradient graph.
-        ## See: https://discuss.huggingface.co/t/how-to-output-loss-from-model-generate/16999
-        gen_with_grad = undecorated(self.model.generate)
-        self.model.generate_with_grad = MethodType(gen_with_grad, self.model)
+        self.score_fn = GPTScorer(tok=tok)
+        self.total_steps = int(
+            np.ceil(
+                self.config.samples_per_epoch
+                * self.config.max_epochs
+                / (
+                    self.config.devices
+                    * self.config.batch_size
+                    * self.config.accumulate_grad_batches
+                )
+            )
+        )
+        self.alpha = 0.017
 
         ## Save hyper-parameters to self.hparams (auto-logged by W&B).
         self.save_hyperparameters(ignore=["model"])
 
-    # def _get_weighted_loss(
-    #     self,
-    #     loss: torch.Tensor,
-    #     reward: torch.Tensor,
-    # ) -> torch.Tensor:
-    #     ##  - |loss| = (batch_size,)
-    #     ##  - |reward| = (batch_size,)
-    #     reward = reward.to(device=loss.device, dtype=loss.dtype)
-    #     loss = (loss * (-reward * 10 + 1)).mean()
+    @torch.inference_mode()
+    def _get_reward(self, y: torch.Tensor) -> torch.Tensor:
+        ## |y| = (batch_size, length)
 
-    #     # loss = (loss * (1 + 1 / torch.sqrt(1 + reward))).mean()
+        ## Calcualte reward.
+        zlib = self.score_fn.zlib_entropy(y).to(y.device)
+        logits = self(input_ids=y, return_dict=True).logits
+        ## |zlib| = (batch_size,)
+        ## |logits| = (batch_size, length)
 
-    #     # loss = (loss * torch.exp(self.alpha / reward)).mean()
-    #     # loss = (loss * (1 + F.sigmoid(-reward / self.alpha))).sum()
-    #     # loss = (loss * (1 + F.sigmoid(-reward / self.alpha))).sum()
-    #     # loss = (loss * F.relu6(1 / reward)).sum()
-    #     # loss = (loss * (1 + 1 / torch.sqrt(1 + reward / self.alpha))).mean()
-
-    #     ## Following two equations are eventually same.
-    #     ## \theta = \theta - risk * \nabla_\theta \log{P}
-    #     ## \theta = \theta - -reward * \nabla_\theta \log{P}
-    #     ## where risk = -reward.
-
-    #     return loss
-
-    def _get_loss(
-        self, logits: torch.Tensor, labels: torch.Tensor, reward: torch.Tensor
-    ) -> torch.Tensor:
-        ## |logits| = (batch_size, length, n_vocabs)
-        ## |labels| = (batch_size, length,)
-        ## |reward| = (batch_size,)
-
-        ## Move labels to correct device to enable model parallelism.
-        labels = labels.to(logits.device)
-        reward = reward.to(logits.device)
-
-        ## Shift so that tokens < n predict n.
-        ##  - |shift_logits| = (batch_size, length - 1, n_vocabs)
-        ##  - |shift_labels| = (batch_size, length - 1)
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-
-        ## Flatten the tokens without reduction.
-        ##  - |ce_loss| = (batch_size,)
-        ce_loss = (
-            F.cross_entropy(
-                shift_logits.view(-1, shift_logits.size(-1)),
-                shift_labels.view(-1),
-                ignore_index=self.tok.pad_token_id,
-                reduction="none",
-            )
-            .view(labels.size(0), -1)
-            .sum(-1)
+        reward = zlib / torch.exp(
+            self.score_fn._ce_loss_without_reduction(logits=logits, labels=y)
         )
-        ce_loss = (ce_loss * -reward).mean()
-
-        return ce_loss
-
-    def _get_reward(self, tokens: torch.Tensor) -> dict:
-        zlib_entropy = [
-            len(zlib.compress(bytes(sent, encoding="utf-8")))
-            for sent in self.tok.batch_decode(tokens, skip_special_tokens=True)
-        ]
-        ## Dtype: long -> float
-        reward = torch.FloatTensor(zlib_entropy) / 100
-
+        ## |reward| = (batch_size,)
         return reward
-
-        # ## Calculate membership inference metrics for all samples.
-        # l = self.score_fn.ce_loss(gen_tokens)
-        # p = torch.exp(l)
-        # z = self.score_fn.zlib_entropy(gen_tokens).to(l.device)
-        # ## |l| = (batch_size,)
-        # ## |p| = (batch_size,)
-        # ## |z| = (batch_size,)
-
-        # reward = z
-        # ## |reward| = (batch_size,)
-
-        # return easydict.EasyDict(
-        #     {"ce": l, "ppl": p, "zlib": z, "reward": reward}
-        # )
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
 
     def configure_optimizers(self):
-        return DeepSpeedCPUAdam(self.parameters(), lr=self.config.lr)
+        optimizer = DeepSpeedCPUAdam(self.parameters(), lr=self.config.lr)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=self.config.lr,
+            total_steps=self.total_steps,
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "name": "Learning Rate",
+            },
+        }
 
-    def training_step(self, batch: dict, batch_idx) -> torch.Tensor:
-        ## Flush the cache before start a training loop.
-        get_accelerator().empty_cache()
-
+    def training_step(self, batch: dict, batch_idx) -> dict:
         ## Maximum likelihood.
-        ##  - |x| = (batch_size, 1) -> only <EOS>
         x = batch["input_ids"]
+        ## |x| = (batch_size, 1) (i.e., only [<EOS>,])
 
         prompt_len = x.size(1)
         assert prompt_len == 1
 
-        ## Sampling y_hat.
-        ##  - |gen_tokens| = (batch_size, length)
-        gen_tokens = self.model.generate(
+        ## Sample y_hat, logits, and the loss.
+        y_hat: torch.Tensor = self.model.generate(
             x,
             do_sample=self.config.do_sample,
-            # temperature=self.config.temperature,  ## 1.0
-            # repetition_penalty=self.config.repetition_penalty,
+            min_length=self.config.min_new_tokens + prompt_len,
+            max_length=self.config.max_new_tokens + prompt_len,
             no_repeat_ngram_size=self.config.no_repeat_ngram_size,
-            # min_new_tokens=self.config.min_new_tokens,  ## 64
-            max_new_tokens=self.config.max_new_tokens,  ## 64
-            top_p=self.config.top_p,  ## 0.95
-            top_k=self.config.top_k,  ## 40
+            top_p=self.config.top_p,
+            top_k=self.config.top_k,
+            synced_gpus=True,
         )
+        logits: torch.Tensor = self(input_ids=y_hat, return_dict=True).logits
+        ce_loss = self.score_fn._ce_loss_without_reduction(
+            logits=logits, labels=y_hat
+        )
+        ## |y_hat| = (batch_size, length)
+        ## |logits| = (batch_size, length, vocab_size)
+        ## |ce_loss| = (batch_size,)
 
         with torch.no_grad():
             ## Based on the result of sampling, get reward.
             ## We set the generated sentence with the highest score
             ## in the batch as the target.
-            ##  - |actor_reward| = (batch_size,)
-            actor_reward = self._get_reward(gen_tokens)
+            actor_reward = self._get_reward(y_hat)
+            ## |actor_reward| = (batch_size,)
 
             ## Take samples as many as n_samples,
             ## and get average rewards for them.
@@ -163,53 +110,40 @@ class MinimumRiskTrainingModule(L.LightningModule):
                 sampled_gen_tokens = self.model.generate(
                     x,
                     do_sample=self.config.do_sample,
-                    # temperature=self.config.temperature,  ## 1.0
-                    # repetition_penalty=self.config.repetition_penalty,
+                    min_length=self.config.min_new_tokens + prompt_len,
+                    max_length=self.config.max_new_tokens + prompt_len,
                     no_repeat_ngram_size=self.config.no_repeat_ngram_size,
-                    # min_new_tokens=self.config.min_new_tokens,  ## 64
-                    max_new_tokens=self.config.max_new_tokens,  ## 64
-                    top_p=self.config.top_p,  ## 0.95
-                    top_k=self.config.top_k,  ## 40
+                    top_p=self.config.top_p,
+                    top_k=self.config.top_k,
+                    synced_gpus=True,
                 )
                 baseline += [self._get_reward(sampled_gen_tokens)]
 
             ## Get average of k samples.
-            ##  - |baseline| = (rl_n_samples, batch_size) -> (batch_size,)
-            baseline = torch.stack(baseline).mean(dim=0)  ## not stack
+            baseline = torch.stack(baseline).mean(dim=0)
+            ## |baseline| = (rl_n_samples, batch_size) -> (batch_size,)
 
             ## Now, we have relatively expected cumulative reward.
             ## Which score can be drawn from actor_reward substracted by baseline.
-            ##  - |reward| = (batch_size,) \in (-inf, +inf)
-            reward = actor_reward - baseline
+            reward = (actor_reward - baseline) / torch.max(actor_reward) * 100.0
+            ## |reward| = (batch_size,)
 
-        ## Forward.
-        logits = self(input_ids=gen_tokens, return_dict=True).logits
-        labels = gen_tokens
+        ## Calculate minimum risk training loss.
+        rl_loss = (ce_loss * -reward).mean()
+        ce_loss = ce_loss.mean()
 
-        loss = self._get_loss(logits, labels, reward=reward)
-
-        # loss = self._get_weighted_loss(r_dict.ce, reward=reward)
+        loss = self.alpha * ce_loss + (1 - self.alpha) * rl_loss  ## alpha=0.1
+        ## |loss| = (1,)
 
         ## Make a return dict.
         metrics = {
             "actor": actor_reward.mean(),
             "baseline": baseline.mean(),
             "reward": reward.mean(),
+            "rl_loss": rl_loss,
+            "ce_loss": ce_loss,
             "loss": loss,
         }
-
-        # ## Make a return dict.
-        # metrics = {
-        #     # "actor":
-        #     "loss": loss,
-        #     "loss_mle": loss_mle.mean(),
-        #     "loss_gmrt": loss_gmrt.mean(),
-        #     "ce": r_dict.ce.mean(),
-        #     "ppl": r_dict.ppl.mean(),
-        #     "zlib_entropy": r_dict.zlib.mean(),
-        #     # "baseline": baseline,
-        #     # "reward": reward,
-        # }
         self.log_dict(metrics, prog_bar=True, logger=True, on_step=True)
 
         return metrics

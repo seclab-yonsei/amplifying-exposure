@@ -2,89 +2,61 @@ import torch
 
 import zlib
 
-import numpy as np
-
 
 class GPTScorer:
-    def __init__(self, tok, model):
+    def __init__(self, tok):
         super(GPTScorer, self).__init__()
-
         self.tok = tok
-        self.model = model
 
-        self.ignore_index = -100
-
-    def _forward_without_reduction(
+    def _ce_loss_without_reduction(
         self,
-        input_ids: torch.Tensor,
+        logits: torch.Tensor,
         labels: torch.Tensor,
     ) -> torch.Tensor:
-        ##  - |gen_tokens| = (batch_size, length)
-
-        ## See forward function in:
-        if hasattr(self.model, "transformer"):  ## GPT2LMHeadModel
-            transformer_outputs = self.model.transformer(input_ids)
-            hidden_states = transformer_outputs[0]
-
-            lm_logits = self.model.lm_head(hidden_states)
-
-        elif hasattr(self.model, "gpt_neox"):  ## GPTNeoXForCausalLM
-            gptneox_outputs = self.model.transformer(input_ids)
-            hidden_states = gptneox_outputs[0]
-
-            lm_logits = self.model.embed_out(hidden_states)
-
-        else:
-            raise NotImplementedError("Model is not implemented yet.")
+        ## |logits| = (batch_size, length, vocab_size)
+        ## |labels| = (batch_size, length))
 
         ## Move labels to correct device to enable model parallelism.
-        ##  - |labels| = (batch_size, length)
-        labels = labels.to(lm_logits.device)
+        labels = labels.to(logits.device)
+        ## |labels| = (batch_size, length)
 
         ## Shift so that tokens < n predict n.
-        ##  - |shift_logits| = (batch_size, length - 1, n_vocabs)
-        ##  - |shift_labels| = (batch_size, length - 1)
-        shift_logits = lm_logits[..., :-1, :].contiguous()
+        shift_logits = logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
+        ## |shift_logits| = (batch_size, length-1, n_vocabs)
+        ## |shift_labels| = (batch_size, length-1)
 
         batch_size = shift_logits.size(0)
         output_size = shift_logits.size(-1)
 
         ## Flatten the tokens without reduction.
-        ##  - |loss| = (batch_size,)
         loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
-        loss = loss_fct(
-            shift_logits.view(-1, output_size), shift_labels.view(-1)
-        ).view(batch_size, -1)
-
-        return loss
-
-    # @torch.inference_mode()
-    def ce_loss(self, gen_tokens: torch.Tensor) -> torch.Tensor:
-        ##  - |gen_tokens| = (batch_size, length)
-        ##  - |loss| = (batch_size,)
-        loss = self._forward_without_reduction(
-            input_ids=gen_tokens,
-            labels=gen_tokens,
-        ).mean(dim=-1)
-
+        loss = (
+            loss_fct(
+                shift_logits.view(-1, output_size),
+                shift_labels.view(-1),
+            )
+            .view(batch_size, -1)
+            .mean(dim=-1)
+        )
+        ## |loss| = (batch_size,)
         return loss
 
     @torch.inference_mode()
     def zlib_entropy(self, gen_tokens: torch.Tensor) -> torch.Tensor:
-        ##  - |gen_tokens| = (batch_size, length)
-        ##  - |zlib_entropy| = (batch_size,)
-        zlib_entropy = [
-            len(zlib.compress(bytes(sent, encoding="utf-8")))
-            for sent in self.tok.batch_decode(
-                gen_tokens, skip_special_tokens=True
-            )
-        ]
-        ## Dtype: long -> float
-        zlib_entropy = torch.FloatTensor(zlib_entropy)
+        ##  |gen_tokens| = (batch_size, length)
+        z = torch.FloatTensor(
+            [
+                len(zlib.compress(bytes(sent, encoding="utf-8")))
+                for sent in self.tok.batch_decode(
+                    gen_tokens, skip_special_tokens=True
+                )
+            ]
+        )
+        ## |z| = (batch_size,)
+        return z
 
-        return zlib_entropy
-
+    """
     @torch.inference_mode()
     def zlib_entropy_ratio(self, gen_tokens: torch.Tensor) -> torch.Tensor:
         ##  - |gen_tokens| = (batch_size, length)
@@ -103,6 +75,7 @@ class GPTScorer:
         zlib_entropy_ratio = torch.FloatTensor(zlib_entropy_ratio)
 
         return zlib_entropy_ratio
+    """
 
     """
     def window_perplexity(
