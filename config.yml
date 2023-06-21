@@ -19,6 +19,7 @@ every_n_epochs: 1
 save_top_k: -1
 
 ## Trainer.
+buffer_size: 1_000
 accelerator: "gpu"
 devices: 2
 precision: "16-mixed"

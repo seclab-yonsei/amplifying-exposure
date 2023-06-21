@@ -17,18 +17,20 @@ class MinimumRiskTrainingModule(L.LightningModule):
         self.config = config
 
         self.score_fn = GPTScorer(tok=tok)
+        self.total_batch_size = (
+            self.config.devices
+            * self.config.batch_size
+            * self.config.accumulate_grad_batches
+        )
         self.total_steps = int(
             np.ceil(
                 self.config.samples_per_epoch
                 * self.config.max_epochs
-                / (
-                    self.config.devices
-                    * self.config.batch_size
-                    * self.config.accumulate_grad_batches
-                )
+                / self.total_batch_size
             )
         )
-        self.alpha = 0.017
+        self.alpha = 0.9
+        self.replay_buffer = []
 
         ## Save hyper-parameters to self.hparams (auto-logged by W&B).
         self.save_hyperparameters(ignore=["model"])
@@ -67,6 +69,51 @@ class MinimumRiskTrainingModule(L.LightningModule):
                 "name": "Learning Rate",
             },
         }
+
+    """
+    def on_train_epoch_start(self):
+        input_ids = (
+            torch.tensor([self.tok.eos_token_id], dtype=torch.int32)
+            .repeat(self.config.batch_size)
+            .to(self.model.device)
+        )
+        prompt_len = input_ids.size(1)
+
+        buffer = []
+        n_iter = int(
+            np.ceil(
+                self.config.buffer_size
+                / (self.config.batch_size * self.config.devices)
+            )
+        )
+        for i in tqdm.tqdm(range(n_iter), desc="Preparing the replay buffer"):
+            bs = i * self.config.batch_size
+            gen_tokens = (
+                self.model.generate(
+                    input_ids,
+                    do_sample=self.config.do_sample,
+                    min_length=self.config.min_new_tokens + prompt_len,
+                    max_length=self.config.max_new_tokens + prompt_len,
+                    no_repeat_ngram_size=self.config.no_repeat_ngram_size,
+                    top_p=self.config.top_p,
+                    top_k=self.config.top_k,
+                    synced_gpus=True,
+                )
+                .clone()
+                .detach()
+            )
+            rewards = self._get_reward(gen_tokens)
+            for ii in range(gen_tokens.size(0)):
+                buffer.append(
+                    {
+                        "y": gen_tokens[ii],
+                        "reward": rewards[ii],
+                    }
+                )
+
+        ## Extend our buffer.
+        self.replay_buffer += buffer
+    """
 
     def training_step(self, batch: dict, batch_idx) -> dict:
         ## Maximum likelihood.
