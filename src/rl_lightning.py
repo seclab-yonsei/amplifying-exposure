@@ -29,7 +29,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
                 / self.total_batch_size
             )
         )
-        self.alpha = 0.9
+        self.alpha = 0.017
         self.replay_buffer = []
 
         ## Save hyper-parameters to self.hparams (auto-logged by W&B).
@@ -45,8 +45,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
         ## |zlib| = (batch_size,)
         ## |logits| = (batch_size, length)
 
-        reward = zlib / torch.exp(
-            self.score_fn._ce_loss_without_reduction(logits=logits, labels=y)
+        reward = zlib / self.score_fn._ce_loss_without_reduction(
+            logits=logits, labels=y
         )
         ## |reward| = (batch_size,)
         return reward
@@ -172,7 +172,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
 
             ## Now, we have relatively expected cumulative reward.
             ## Which score can be drawn from actor_reward substracted by baseline.
-            reward = (actor_reward - baseline) / torch.max(actor_reward) * 100.0
+            reward = actor_reward - baseline
+            # reward = (actor_reward - baseline) / torch.max(actor_reward) * 100.0
             ## |reward| = (batch_size,)
 
         ## Calculate minimum risk training loss.
