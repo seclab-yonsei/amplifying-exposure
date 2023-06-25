@@ -6,7 +6,7 @@ pretrained_model_name: "EleutherAI/gpt-neo-1.3B"
 revision: "main"
 
 ## Dataset.
-samples_per_epoch: 10_000
+samples_per_epoch: 100_000
 batch_size: 64
 num_workers: 24
 

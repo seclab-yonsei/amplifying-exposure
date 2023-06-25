@@ -8,7 +8,7 @@ class GPTScorer:
         super(GPTScorer, self).__init__()
         self.tok = tok
 
-    def _ce_loss_without_reduction(
+    def ce_loss_without_reduction(
         self,
         logits: torch.Tensor,
         labels: torch.Tensor,
