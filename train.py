@@ -21,13 +21,13 @@ from pytz import timezone
 
 from src.dataset import MinimumRiskTrainingDataModule
 from src.rl_lightning import MinimumRiskTrainingModule
-from src.utils import define_logger
+from src.utils import define_logger, convert_ckpt_as_one_file
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-def define_config(fname: str = "config.yml") -> dict:
+def define_config(fname: str = "assets/train_config.ymal") -> dict:
     ## Load yaml configuration file.
     with open(fname) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
@@ -65,7 +65,7 @@ def main(config: dict) -> None:
     print_config(config)
 
     ## Logger.
-    define_logger(config)
+    define_logger(config.debug)
 
     ## See:
     ##  - https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
@@ -125,6 +125,10 @@ def main(config: dict) -> None:
 
     ## And just train it.
     trainer.fit(lightning_module, datamodule=data_module)
+
+    ## Convert deepspeed checkpoints to normal fp32 formats.
+    for checkpoint_dir in Path(config.ckpt, config.nowtime).glob("*.ckpt"):
+        convert_ckpt_as_one_file(checkpoint_dir=checkpoint_dir)
 
 
 if __name__ == "__main__":

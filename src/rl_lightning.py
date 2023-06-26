@@ -20,7 +20,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
         self.config = config
 
         self.score_fn = GPTScorer(tok=tok)
-        self.alpha = 0.017
+        self.alpha = 0.002
 
         ## Auto-parameters.
         self.per_replica_batch_size = (
@@ -147,21 +147,15 @@ class MinimumRiskTrainingModule(L.LightningModule):
         return reward
 
     @torch.inference_mode()
-    def fetch_reward_from_replay_buffer(self) -> tuple:
+    def _fetch_reward_from_replay_buffer(self) -> tuple:
         ## Calculate the average.
         m = torch.stack([d["reward"] for d in self.replay_buffer]).mean()
+        ## |m| = (1,)
+
         return m
 
-        # ## Sort buffer by ascending order.
-        # self.replay_buffer = sorted(
-        #     self.replay_buffer, key=itemgetter("reward")
-        # )
-        # element = self.replay_buffer[-1]  ## not `pop`
-
-        # return (element["y"], element["reward"])
-
     @torch.inference_mode()
-    def insert_y_hat_to_replay_buffer(
+    def _insert_y_hat_to_replay_buffer(
         self, y_hat: torch.Tensor, y_hat_reward: torch.Tensor
     ) -> None:
         ## Insert items.
@@ -202,7 +196,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
 
         with torch.no_grad():
             ## Fetch pseudy y.
-            y_reward = self.fetch_reward_from_replay_buffer()
+            y_reward = self._fetch_reward_from_replay_buffer()
             y_reward.to(self.model.device)
 
             ## Based on the result of sampling, get reward.
@@ -245,11 +239,13 @@ class MinimumRiskTrainingModule(L.LightningModule):
         rl_loss = (ce_loss * -reward).mean()
         ce_loss = ce_loss.mean()
 
-        loss = self.alpha * ce_loss + (1 - self.alpha) * rl_loss  ## alpha=0.1
+        loss = self.alpha * ce_loss + (1 - self.alpha) * rl_loss
         ## |loss| = (1,)
 
         ## Insert y_hat and their rewards.
-        self.insert_y_hat_to_replay_buffer(y_hat.clone().detach(), actor_reward)
+        self._insert_y_hat_to_replay_buffer(
+            y_hat.clone().detach(), actor_reward
+        )
 
         ## Make a return dict.
         metrics = {

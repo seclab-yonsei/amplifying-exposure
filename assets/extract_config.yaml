@@ -1,0 +1,26 @@
+## Model and tokenizer.
+load_from_naive_model: False
+pretrained_model_name: "EleutherAI/gpt-neo-1.3B"
+revision: "main"
+checkpoint_path: None
+device: "cuda:0"
+
+## Default settings.
+detect_anomaly: False
+
+## Inference.
+n: 100_000
+k: 100
+batch_size: 16
+do_sample: True
+min_new_tokens: 64
+max_new_tokens: 64
+no_repeat_ngram_size: 3
+top_p: 0.95
+top_k: 40
+
+## Folders.
+assets: assets
+
+## Debug.
+debug: True

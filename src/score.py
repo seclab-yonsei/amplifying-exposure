@@ -2,6 +2,8 @@ import torch
 
 import zlib
 
+import numpy as np
+
 
 class GPTScorer:
     def __init__(self, tok):
@@ -43,13 +45,31 @@ class GPTScorer:
         return loss
 
     @torch.inference_mode()
-    def zlib_entropy(self, gen_tokens: torch.Tensor) -> torch.Tensor:
-        ##  |gen_tokens| = (batch_size, length)
+    def perplexity(
+        self,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> np.ndarray:
+        ## |labels| = (batch_size, length)
+        ## |logits| = (batch_size, length, num_vocabs)
+        logits = logits.to(labels)
+
+        ## Forward and average it by token dimension.
+        loss = self.ce_loss_without_reduction(logits=logits, labels=labels)
+        ppl = np.exp(loss.detach().cpu().numpy())
+        ## |loss| = (batch_size,)
+        ## |ppl| = (batch_size,)
+
+        return ppl
+
+    @torch.inference_mode()
+    def zlib_entropy(self, labels: torch.Tensor) -> torch.Tensor:
+        ##  |labels| = (batch_size, length)
         z = torch.FloatTensor(
             [
                 len(zlib.compress(bytes(sent, encoding="utf-8")))
                 for sent in self.tok.batch_decode(
-                    gen_tokens, skip_special_tokens=True
+                    labels, skip_special_tokens=True
                 )
             ]
         )
