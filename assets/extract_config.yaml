@@ -1,9 +1,11 @@
 ## Model and tokenizer.
-load_from_naive_model: False
-pretrained_model_name: "EleutherAI/gpt-neo-1.3B"
-revision: "main"
-checkpoint_path: None
-device: "cuda:0"
+load_from_checkpoint: True
+
+pretrained_model_name: EleutherAI/gpt-neo-1.3B
+revision: main
+
+checkpoint_path: ckpt/20230627-180201/epoch=0-step=2.ckpt/pytorch_model.bin
+device: cuda:0
 
 ## Default settings.
 detect_anomaly: False

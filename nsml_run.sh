@@ -25,7 +25,7 @@ sudo apt-get install -y python3-pip
 
 pip3 install --upgrade pip
 pip3 install torch transformers lightning easydict black wandb FastAPI tqdm
-pip3 install transformers[deepspeed]
+DS_BUILD_OPS=0 pip3 install transformers[deepspeed]
 sudo apt-get install -y libaio-dev
 
 ds_report
@@ -43,6 +43,9 @@ echo "nowtime: $NOWTIME" >> config.yml
 # deepspeed --num_gpus=2 train.py --deepspeed ./assets/ds_config_zero3.json \
 #   > run_log.log 2>&1
 deepspeed --num_gpus=2 train.py --deepspeed ./assets/ds_config_zero3.json
+
+## Convert checkpoint.
+python ./src/zero_to_fp32.py --checkpoint_root_dir ./ckpt/$NOWTIME
 
 ## Return.
 exit 0

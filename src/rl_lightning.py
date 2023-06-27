@@ -1,5 +1,6 @@
 import torch
 import lightning as L
+import deepspeed
 
 import tqdm
 

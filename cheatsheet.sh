@@ -28,3 +28,6 @@ ln -s /mnt/block-storage/ckpt ckpt
 deepspeed --num_gpus=1 train.py --deepspeed ./assets/ds_config_zero3.json
 deepspeed --num_gpus=2 train.py --deepspeed ./assets/ds_config_zero3.json
 # python train.py
+
+## Extract.
+python ./src/zero_to_fp32.py --checkpoint_root_dir ./ckpt/20230627-201724

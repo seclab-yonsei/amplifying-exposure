@@ -1,13 +1,8 @@
 import torch
 
 import logging
-import shutil
 
-from lightning.pytorch.utilities.deepspeed import (
-    convert_zero_checkpoint_to_fp32_state_dict,
-)
-
-from pathlib import Path
+from collections import OrderedDict
 
 
 def define_logger(debug: bool = False) -> None:
@@ -25,21 +20,12 @@ def make_weights_contiguous(module: torch.nn.Module):
             p.data = p.data.contiguous()
 
 
-def convert_ckpt_as_one_file(
-    checkpoint_dir: str, make_clean: bool = True
-) -> None:
-    ## Auto-naming.
-    output_file = Path(
-        Path(checkpoint_dir).parent,
-        "{}.pt".format(Path(checkpoint_dir).name.split(".")[0]),
-    )
+def remove_prefix_from_state_dict(
+    state_dict: OrderedDict, prefix: str = "_forward_module"
+) -> OrderedDict:
+    new_state_dict = OrderedDict()
+    for n, v in state_dict.items():
+        name = n.replace(prefix, "")
+        new_state_dict[name] = v
 
-    ## Convert.
-    convert_zero_checkpoint_to_fp32_state_dict(
-        checkpoint_dir=checkpoint_dir, output_file=output_file
-    )
-
-    ## Make clean.
-    if make_clean:
-        shutil.rmtree(checkpoint_dir)
-        print(f"Checkpoint folder '{checkpoint_dir}' is now clean")
+    return new_state_dict

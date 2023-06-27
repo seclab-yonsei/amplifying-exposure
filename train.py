@@ -1,6 +1,6 @@
 import torch
-import transformers
 import lightning as L
+import transformers
 import deepspeed
 
 import datetime
@@ -21,13 +21,13 @@ from pytz import timezone
 
 from src.dataset import MinimumRiskTrainingDataModule
 from src.rl_lightning import MinimumRiskTrainingModule
-from src.utils import define_logger, convert_ckpt_as_one_file
+from src.utils import define_logger
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-def define_config(fname: str = "assets/train_config.ymal") -> dict:
+def define_config(fname: str = "assets/train_config.yaml") -> dict:
     ## Load yaml configuration file.
     with open(fname) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
@@ -67,6 +67,9 @@ def main(config: dict) -> None:
     ## Logger.
     define_logger(config.debug)
 
+    ## Force a build of cpu Adam in a Python shell.
+    deepspeed.ops.op_builder.CPUAdamBuilder().load()
+
     ## See:
     ##  - https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
     ##  - https://sebastianraschka.com/blog/2023/llm-mixed-precision.html
@@ -81,11 +84,6 @@ def main(config: dict) -> None:
     tok = transformers.AutoTokenizer.from_pretrained(
         config.pretrained_model_name,
         revision=config.revision,
-        # bos_token="[BOS]",
-        # eos_token="[EOS]",
-        # unk_token="[UNK]",
-        # pad_token="[PAD]",
-        # mask_token="[MASK]",
     )
     model = transformers.AutoModelForCausalLM.from_pretrained(
         config.pretrained_model_name,
@@ -125,10 +123,6 @@ def main(config: dict) -> None:
 
     ## And just train it.
     trainer.fit(lightning_module, datamodule=data_module)
-
-    ## Convert deepspeed checkpoints to normal fp32 formats.
-    for checkpoint_dir in Path(config.ckpt, config.nowtime).glob("*.ckpt"):
-        convert_ckpt_as_one_file(checkpoint_dir=checkpoint_dir)
 
 
 if __name__ == "__main__":

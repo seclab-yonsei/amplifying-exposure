@@ -17,7 +17,7 @@ from typing import List
 
 from src.rl_lightning import MinimumRiskTrainingModule
 from src.score import GPTScorer
-from src.utils import define_logger
+from src.utils import define_logger, remove_prefix_from_state_dict
 
 
 LOGGER = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def define_config(fname: str = "assets/extract_config.yaml") -> dict:
 
 def get_tokenizer_and_model(config: argparse.Namespace) -> tuple:
     ## See: https://huggingface.co/kakaobrain/kogpt
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained(
         config.pretrained_model_name,
         revision=config.revision,
         # bos_token="[BOS]",
@@ -45,7 +45,7 @@ def get_tokenizer_and_model(config: argparse.Namespace) -> tuple:
     )
     LOGGER.debug(f"Tokenizer loaded: {config.pretrained_model_name}")
 
-    model = transformers.AutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         config.pretrained_model_name,
         revision=config.revision,
         pad_token_id=tokenizer.eos_token_id,
@@ -127,8 +127,8 @@ def save_results(config: dict, df: pd.DataFrame) -> None:
     LOGGER.debug(f"Results save to {save_path}")
 
 
-def main(config: argparse.Namespace) -> None:
-    def print_config(config: argparse.Namespace) -> None:
+def main(config: dict) -> None:
+    def print_config(config: dict) -> None:
         pprint.PrettyPrinter(indent=4, sort_dicts=False).pprint(vars(config))
 
     print_config(config)
@@ -146,33 +146,33 @@ def main(config: argparse.Namespace) -> None:
         torch.autograd.set_detect_anomaly(True)
 
     ## Load tokenizer, model, and lightning module.
+    tok = transformers.AutoTokenizer.from_pretrained(
+        config.pretrained_model_name,
+        revision=config.revision,
+        # bos_token="[BOS]",
+        # eos_token="[EOS]",
+        # unk_token="[UNK]",
+        # pad_token="[PAD]",
+        # mask_token="[MASK]",
+    )
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        config.pretrained_model_name,
+        revision=config.revision,
+        pad_token_id=tok.eos_token_id,
+        torch_dtype="auto",  ## loaded as torch.float32 (not fp16)
+        ## The argument 'low_cpu_mem_use=True'
+        ## may cause RuntimeError: Tensors are not contiguous ...
+        # low_cpu_mem_usage=True,
+    )
+
+    ## Load state_dict.
     if config.load_from_checkpoint:
-        lightning_module = MinimumRiskTrainingModule.load_from_checkpoint(
-            checkpoint_path=config.checkpoint_path
-        )
-        model = lightning_module.model
-        tok = lightning_module.tok
-    else:
-        ## Load tokenizer and model.
-        ## See: https://github.com/kakaobrain/kogpt
-        tok = transformers.AutoTokenizer.from_pretrained(
-            config.pretrained_model_name,
-            revision=config.revision,
-            # bos_token="[BOS]",
-            # eos_token="[EOS]",
-            # unk_token="[UNK]",
-            # pad_token="[PAD]",
-            # mask_token="[MASK]",
-        )
-        model = transformers.AutoModelForCausalLM.from_pretrained(
-            config.pretrained_model_name,
-            revision=config.revision,
-            pad_token_id=tok.eos_token_id,
-            torch_dtype="auto",  ## loaded as torch.float32 (not fp16)
-            ## The argument 'low_cpu_mem_use=True'
-            ## may cause RuntimeError: Tensors are not contiguous ...
-            # low_cpu_mem_usage=True,
-        )
+        state_dict = torch.load(config.checkpoint_path)
+        try:
+            model.load_state_dict(state_dict)
+        except RuntimeError:
+            state_dict = remove_prefix_from_state_dict(state_dict)
+            model.load_state_dict(state_dict)
 
     ## Don't forget turn-on evaluation mode.
     _ = model.eval()
