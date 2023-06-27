@@ -4,19 +4,19 @@ load_from_checkpoint: True
 pretrained_model_name: EleutherAI/gpt-neo-1.3B
 revision: main
 
-checkpoint_path: ckpt/20230627-180201/epoch=0-step=2.ckpt/pytorch_model.bin
+checkpoint_path: ckpt/20230627-203244/epoch=0-step=2.ckpt/pytorch_model.bin
 device: cuda:0
 
 ## Default settings.
 detect_anomaly: False
 
 ## Inference.
-n: 100_000
-k: 100
+n: 100
+k: 10
 batch_size: 16
 do_sample: True
-min_new_tokens: 64
-max_new_tokens: 64
+min_new_tokens: 256
+max_new_tokens: 256
 no_repeat_ngram_size: 3
 top_p: 0.95
 top_k: 40

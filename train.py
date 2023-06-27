@@ -68,6 +68,7 @@ def main(config: dict) -> None:
     define_logger(config.debug)
 
     ## Force a build of cpu Adam in a Python shell.
+    ## See: https://github.com/microsoft/DeepSpeed/issues/1846
     deepspeed.ops.op_builder.CPUAdamBuilder().load()
 
     ## See:

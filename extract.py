@@ -1,5 +1,6 @@
 import torch
 import transformers
+import deepspeed
 
 import argparse
 import easydict
@@ -136,6 +137,10 @@ def main(config: dict) -> None:
     ## Set logger.
     define_logger(config.debug)
 
+    ## Force a build of cpu Adam in a Python shell.
+    ## See: https://github.com/microsoft/DeepSpeed/issues/1846
+    deepspeed.ops.op_builder.CPUAdamBuilder().load()
+
     ## See:
     ##  - https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
     ##  - https://sebastianraschka.com/blog/2023/llm-mixed-precision.html
@@ -149,17 +154,12 @@ def main(config: dict) -> None:
     tok = transformers.AutoTokenizer.from_pretrained(
         config.pretrained_model_name,
         revision=config.revision,
-        # bos_token="[BOS]",
-        # eos_token="[EOS]",
-        # unk_token="[UNK]",
-        # pad_token="[PAD]",
-        # mask_token="[MASK]",
     )
     model = transformers.AutoModelForCausalLM.from_pretrained(
         config.pretrained_model_name,
         revision=config.revision,
         pad_token_id=tok.eos_token_id,
-        torch_dtype="auto",  ## loaded as torch.float32 (not fp16)
+        torch_dtype=torch.float16,
         ## The argument 'low_cpu_mem_use=True'
         ## may cause RuntimeError: Tensors are not contiguous ...
         # low_cpu_mem_usage=True,
@@ -176,6 +176,8 @@ def main(config: dict) -> None:
 
     ## Don't forget turn-on evaluation mode.
     _ = model.eval()
+    if config.device.startswith("cuda") and torch.cuda.is_available():
+        model = model.to(device=config.device, non_blocking=True)
 
     ## ========== ========== ==========
     ## TEXT SAMPLING
@@ -218,7 +220,9 @@ def main(config: dict) -> None:
             sp = i * config.batch_size
             ep = min((i + 1) * config.batch_size, len(tokens))
 
-            labels = tokens[sp:ep]
+            labels = torch.LongTensor(tokens[sp:ep]).to(model.device)
+            print(labels, labels.size())
+            print(tok.batch_decode(labels))
             logits = model(input_ids=labels, return_dict=True).logits
 
             p_ = scorer.perplexity(logits=logits, labels=labels)

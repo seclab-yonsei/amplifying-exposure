@@ -24,7 +24,7 @@ class GPTScorer:
 
         ## Shift so that tokens < n predict n.
         shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
+        shift_labels = labels[..., 1:].to(logits.dtype).contiguous()
         ## |shift_logits| = (batch_size, length-1, n_vocabs)
         ## |shift_labels| = (batch_size, length-1)
 
@@ -52,7 +52,6 @@ class GPTScorer:
     ) -> np.ndarray:
         ## |labels| = (batch_size, length)
         ## |logits| = (batch_size, length, num_vocabs)
-        logits = logits.to(labels)
 
         ## Forward and average it by token dimension.
         loss = self.ce_loss_without_reduction(logits=logits, labels=labels)

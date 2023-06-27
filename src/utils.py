@@ -21,7 +21,7 @@ def make_weights_contiguous(module: torch.nn.Module):
 
 
 def remove_prefix_from_state_dict(
-    state_dict: OrderedDict, prefix: str = "_forward_module"
+    state_dict: OrderedDict, prefix: str = "_forward_module.model."
 ) -> OrderedDict:
     new_state_dict = OrderedDict()
     for n, v in state_dict.items():
