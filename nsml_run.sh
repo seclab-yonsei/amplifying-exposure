@@ -40,9 +40,33 @@ export TRANSFORMERS_CACHE="/mnt/block-storage/.cache/huggingface/transformers"
 echo "nowtime: $NOWTIME" >> config.yml
 
 ## Train and record all outputs (stdout, stderr) to a log file.
-# deepspeed --num_gpus=2 train.py --deepspeed ./assets/ds_config_zero3.json \
-#   > run_log.log 2>&1
-deepspeed --num_gpus=2 train.py --deepspeed ./assets/ds_config_zero3.json
+deepspeed --num_gpus=2 train.py \
+  --pretrained_model_name EleutherAI/gpt-neo-1.3B \
+  --revision main \
+  --samples_per_epoch 10_000 \
+  --batch_size 64 \
+  --num_workers 24 \
+  --wandb_project mrt \
+  --ckpt ckpt \
+  --every_n_epochs 1 \
+  --save_top_k -1 \
+  --buffer_size 1_000 \
+  --accelerator gpu \
+  --devices 2 \
+  --precision 16-mixed \
+  --accumulate_grad_batches 4 \
+  --max_epochs 10 \
+  --logging_interval 1 \
+  --lr 2e-5 \
+  --do_sample \
+  --min_new_tokens 64 \
+  --max_new_tokens 64 \
+  --no_repeat_ngram_size 3 \
+  --top_p 0.95 \
+  --top_k 40 \
+  --rl_n_samples 1 \
+  --debug \
+  --deepspeed ./assets/ds_config_zero3.json
 
 ## Convert checkpoint.
 # python ./src/zero_to_fp32.py --checkpoint_root_dir ./ckpt/$NOWTIME

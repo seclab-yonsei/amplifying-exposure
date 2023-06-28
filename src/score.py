@@ -15,16 +15,24 @@ class GPTScorer:
         logits: torch.Tensor,
         labels: torch.Tensor,
     ) -> torch.Tensor:
-        ## |logits| = (batch_size, length, vocab_size)
-        ## |labels| = (batch_size, length))
+        """Forward calculates the loss without performing any reductions.
 
+        Args:
+            logits (torch.Tensor): A logit vector for each vocabulary
+                - |logits| = (batch_size, length, vocab_size)
+            labels (torch.Tensor): An answer vector
+                - |labels| = (batch_size, length)
+
+        Returns:
+            torch.Tensor: Loss value per element without reduction applied
+                - |loss| = (batch_size,)
+        """
         ## Move labels to correct device to enable model parallelism.
         labels = labels.to(logits.device)
-        ## |labels| = (batch_size, length)
 
         ## Shift so that tokens < n predict n.
         shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].to(logits.dtype).contiguous()
+        shift_labels = labels[..., 1:].contiguous()
         ## |shift_logits| = (batch_size, length-1, n_vocabs)
         ## |shift_labels| = (batch_size, length-1)
 
@@ -50,20 +58,38 @@ class GPTScorer:
         logits: torch.Tensor,
         labels: torch.Tensor,
     ) -> np.ndarray:
-        ## |labels| = (batch_size, length)
-        ## |logits| = (batch_size, length, num_vocabs)
+        """Computes the perplexity for each element in the batch.
 
+        Args:
+            logits (torch.Tensor): A logit vector for each vocabulary
+                - |logits| = (batch_size, length, vocab_size)
+            labels (torch.Tensor): An answer vector
+                - |labels| = (batch_size, length)
+
+        Returns:
+            np.ndarray: Perplexity per element without reduction applied
+                - |ppl| = (batch_size,)
+        """
         ## Forward and average it by token dimension.
         loss = self.ce_loss_without_reduction(logits=logits, labels=labels)
-        ppl = np.exp(loss.detach().cpu().numpy())
         ## |loss| = (batch_size,)
-        ## |ppl| = (batch_size,)
 
+        ppl = np.exp(loss.detach().cpu().numpy())
+        ## |ppl| = (batch_size,)
         return ppl
 
     @torch.inference_mode()
     def zlib_entropy(self, labels: torch.Tensor) -> torch.Tensor:
-        ##  |labels| = (batch_size, length)
+        """Compute the zlib entropy for each element in the label.
+
+        Args:
+            labels (torch.Tensor): An answer vector
+                - |labels| = (batch_size, length)
+
+        Returns:
+            torch.Tensor: zlib entropy for each element
+                - |z| = (batch_size,)
+        """
         z = torch.FloatTensor(
             [
                 len(zlib.compress(bytes(sent, encoding="utf-8")))

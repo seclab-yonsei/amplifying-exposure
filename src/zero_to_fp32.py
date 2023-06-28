@@ -699,7 +699,10 @@ if __name__ == "__main__":
         help="path to the desired checkpoint root folder",
     )
     parser.add_argument(
-        "-d", "--debug", action="store_true", help="enable debug"
+        "-d",
+        "--debug",
+        action="store_true",
+        help="enable debug",
     )
     args = parser.parse_args()
 

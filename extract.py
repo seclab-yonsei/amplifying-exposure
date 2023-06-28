@@ -3,73 +3,240 @@ import transformers
 import deepspeed
 
 import argparse
-import easydict
 import logging
-import pprint
 import tqdm
-import yaml
 
 import numpy as np
 import pandas as pd
 
 from pathlib import Path
-from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import List
 
-from src.rl_lightning import MinimumRiskTrainingModule
 from src.score import GPTScorer
-from src.utils import define_logger, remove_prefix_from_state_dict
+from src.utils import define_logger, print_config, remove_prefix_from_state_dict
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-def define_config(fname: str = "assets/extract_config.yaml") -> dict:
-    ## Load yaml configuration file.
-    with open(fname) as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
+def define_argparser() -> argparse.Namespace:
+    """Defines the arguments that will be used to execute the code.
 
-    config = easydict.EasyDict(config)
+    Returns:
+        argparse.Namespace: A dictionary whose arguments can be called
+    """
+    p = argparse.ArgumentParser()
+
+    ## Whether to load from a checkpoint.
+    p.add_argument(
+        "--load_from_checkpoint",
+        action="store_true",
+        help=" ".join(
+            [
+                "Whether to load from a checkpoint.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--checkpoint_path",
+        type=str,
+        default=None,
+        help=" ".join(
+            [
+                "The root directory where the checkpoint is stored.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+
+    ## Model and tokenizer.
+    p.add_argument(
+        "--pretrained_model_name",
+        type=str,
+        default="EleutherAI/gpt-neo-1.3B",
+        help=" ".join(
+            [
+                "Name of the model you want to fine-tune.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--revision",
+        type=str,
+        default="main",
+        help=" ".join(
+            [
+                "Revision of the pretrained model.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--device",
+        type=str,
+        default="cuda:0",
+        help=" ".join(
+            [
+                "The device on which the model will be loaded.",
+                "Multi-gpu inference is not yet implemented.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+
+    ## Generation.
+    p.add_argument(
+        "--n",
+        type=int,
+        default=10_000,
+        help=" ".join(
+            [
+                "The number of texts you want to sample.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--k",
+        type=int,
+        default=100,
+        help=" ".join(
+            [
+                "The number of texts you want to screen out of the sampled texts.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--batch_size",
+        type=int,
+        default=16,
+        help=" ".join(
+            [
+                "Number of samples to process in one batch.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--do_sample",
+        action="store_true",
+        help=" ".join(
+            [
+                "Whether or not to use sampling;",
+                "use greedy decoding otherwise.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--min_new_tokens",
+        type=int,
+        default=64,
+        help=" ".join(
+            [
+                "The minimum numbers of tokens to generate.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=64,
+        help=" ".join(
+            [
+                "The maximum numbers of tokens to generate.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--no_repeat_ngram_size",
+        type=int,
+        default=3,
+        help=" ".join(
+            [
+                "If set to int > 0, all ngrams of that size",
+                "can only occur once.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--top_p",
+        type=float,
+        default=0.95,
+        help=" ".join(
+            [
+                "If set to float < 1, only the smallest set of most probable",
+                "tokens with probabilities that add up to top_p or higher are",
+                "kept for generation.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--top_k",
+        type=int,
+        default=40,
+        help=" ".join(
+            [
+                "The number of highest probability vocabulary tokens to keep",
+                "for top-k-filtering.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+
+    ## Debug.
+    p.add_argument(
+        "--detect_anomaly",
+        action="store_true",
+        help=" ".join(
+            [
+                "Enable anomaly detection for the autograd engine.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "-d",
+        "--debug",
+        action="store_true",
+        help=" ".join(
+            [
+                "Specifies the debugging mode.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+
+    config = p.parse_args()
     return config
 
 
-def get_tokenizer_and_model(config: argparse.Namespace) -> tuple:
-    ## See: https://huggingface.co/kakaobrain/kogpt
-    tokenizer = AutoTokenizer.from_pretrained(
-        config.pretrained_model_name,
-        revision=config.revision,
-        # bos_token="[BOS]",
-        # eos_token="[EOS]",
-        # unk_token="[UNK]",
-        # pad_token="[PAD]",
-        # mask_token="[MASK]",
-    )
-    LOGGER.debug(f"Tokenizer loaded: {config.pretrained_model_name}")
-
-    model = AutoModelForCausalLM.from_pretrained(
-        config.pretrained_model_name,
-        revision=config.revision,
-        pad_token_id=tokenizer.eos_token_id,
-        torch_dtype="auto",
-        low_cpu_mem_usage=True,
-    )
-    n_params = (
-        sum([p.numel() for p in model.parameters()]) / 10**9
-    )  ## billion
-    LOGGER.debug(
-        f"Weights loaded: {config.pretrained_model_name} (# params: {n_params:.2f}B)"
-    )
-
-    return tokenizer, model
-
-
 @torch.inference_mode()
-def generate(config: dict, tok, model, prompt: str) -> List[str]:
+def generate(config: argparse.Namespace, tok, model, prompt: str) -> np.ndarray:
+    """One-step to generate text.
+
+    Args:
+        config (argparse.Namespace): A dictionary with configuration items
+        tok (_type_): A tokenizer
+        model (_type_): A model to generate samples
+        prompt (str): Prompt that start a generated sequence
+
+    Returns:
+        np.ndarray: Generated samples in batches
+            - |gen_tokens| = (batch_size, length)
+    """
     ## Encode it.
-    tokens = tok.encode(prompt, return_tensors="pt").repeat(
-        config.batch_size, 1
-    )
+    tokens = tok.encode(prompt, return_tensors="pt")
+    tokens = tokens.repeat(config.batch_size, 1)
     tokens = tokens.to(device=config.device, non_blocking=True)
+    ## |tokens| = (batch_size, 1)
 
     prompt_len = tokens.size(1)
     assert prompt_len == 1
@@ -77,22 +244,34 @@ def generate(config: dict, tok, model, prompt: str) -> List[str]:
     ## Generate texts from tokens.
     gen_tokens = model.generate(
         tokens,
-        do_sample=True,
+        do_sample=config.do_sample,
         min_length=config.min_new_tokens + prompt_len,
         max_length=config.max_new_tokens + prompt_len,
         no_repeat_ngram_size=config.no_repeat_ngram_size,
         top_p=config.top_p,
         top_k=config.top_k,
     )
+    ## |gen_tokens| = (batch_size, max_length=min_length)
 
     ## Don't forget detaching from gpu into cpu.
-    ## |gen_tokens| = (batch_size, max_length=min_length)
     return gen_tokens.cpu().numpy()
 
 
 def calculate_similarity(
-    token1: List[int], token2: List[int], n_gram: int = 3
-) -> bool:
+    token1: List[int],
+    token2: List[int],
+    n_gram: int = 3,
+) -> float:
+    """Calculate trigram similarity: str1 (reference) vs str2 (hyphothesis).
+
+    Args:
+        token1 (List[int]): Reference sentence
+        token2 (List[int]): Hypothesis sentence
+        n_gram (int, optional): Arguments that determine overlap. Defaults to 3.
+
+    Returns:
+        float: n_gram similarity of two tokens
+    """
     ## Calculate trigram similarity: str1 (reference) vs str2 (hyphothesis).
     ## It is same as "Is string 1 is similar with string 2?"
 
@@ -114,24 +293,28 @@ def calculate_similarity(
     return len([i for i in s1 if i in s2]) / len(s1)
 
 
-def save_results(config: dict, df: pd.DataFrame) -> None:
+def save_results(config: argparse.Namespace, df: pd.DataFrame) -> None:
+    """Save the extraction results to a CSV file.
+
+    Args:
+        config (argparse.Namespace): A dictionary with configuration items
+        df (pd.DataFrame): A dataframe where the extraction results are stored
+    """
     ## Save the total results.
-    if config.load_from_checkpoint:
-        save_path = Path(config.checkpoint_path).parent / "{}.csv".format(
-            Path(config.checkpoint_path).name
-        )
-    else:
-        save_path = Path(config.checkpoint_path).parent / Path("naive.csv")
+    fname = (
+        f"{Path(config.checkpoint_path).parent.name}.csv"
+        if config.load_from_checkpoint
+        else "naive.csv"
+    )
+    save_path = Path(config.checkpoint_path).parent / Path(fname)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     df.to_csv(save_path, encoding="utf-8", index=False, header=True)
-    LOGGER.debug(f"Results save to {save_path}")
+    print(f"Results save to {save_path}")
 
 
 def main(config: dict) -> None:
-    def print_config(config: dict) -> None:
-        pprint.PrettyPrinter(indent=4, sort_dicts=False).pprint(vars(config))
-
+    ## Print arguments.
     print_config(config)
 
     ## Set logger.
@@ -141,16 +324,15 @@ def main(config: dict) -> None:
     ## See: https://github.com/microsoft/DeepSpeed/issues/1846
     deepspeed.ops.op_builder.CPUAdamBuilder().load()
 
-    ## See:
-    ##  - https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
-    ##  - https://sebastianraschka.com/blog/2023/llm-mixed-precision.html
+    ## See: https://sebastianraschka.com/blog/2023/llm-mixed-precision.html
     torch.set_float32_matmul_precision("medium")
 
     ## Auto-detect error.
     if config.detect_anomaly:
         torch.autograd.set_detect_anomaly(True)
 
-    ## Load tokenizer, model, and lightning module.
+    ## Load tokenizer and model.
+    ## See: https://huggingface.co/EleutherAI/gpt-neo-2.7B
     tok = transformers.AutoTokenizer.from_pretrained(
         config.pretrained_model_name,
         revision=config.revision,
@@ -159,7 +341,7 @@ def main(config: dict) -> None:
         config.pretrained_model_name,
         revision=config.revision,
         pad_token_id=tok.eos_token_id,
-        torch_dtype=torch.float16,
+        torch_dtype="auto",  ## loaded as torch.float32 (not fp16)
         ## The argument 'low_cpu_mem_use=True'
         ## may cause RuntimeError: Tensors are not contiguous ...
         # low_cpu_mem_usage=True,
@@ -207,7 +389,7 @@ def main(config: dict) -> None:
     ## ========== ========== ==========
     p = []  ## perplexy (PPL)
     z = []  ## zlib entropy
-    w = []  ## PPL of sliding windows
+    # w = []  ## PPL of sliding windows
 
     scorer = GPTScorer(tok=tok)
 
@@ -220,18 +402,18 @@ def main(config: dict) -> None:
             sp = i * config.batch_size
             ep = min((i + 1) * config.batch_size, len(tokens))
 
-            labels = torch.LongTensor(tokens[sp:ep]).to(model.device)
-            print(labels, labels.size())
-            print(tok.batch_decode(labels))
-            logits = model(input_ids=labels, return_dict=True).logits
+            with torch.inference_mode():
+                ## Convert batch into logits and the labels.
+                labels = torch.Tensor(tokens[sp:ep]).long().to(model.device)
+                logits = model(input_ids=labels, return_dict=True).logits
 
-            p_ = scorer.perplexity(logits=logits, labels=labels)
-            z_ = scorer.zlib_entropy(labels=labels)
-            # w_ = scorer.window_perplexity(
-            #     batch=batch,
-            #     window_size=config.window_size,
-            #     stride=config.stride,
-            # )
+                p_ = scorer.perplexity(logits=logits, labels=labels)
+                z_ = scorer.zlib_entropy(labels=labels)
+                # w_ = scorer.window_perplexity(
+                #     batch=batch,
+                #     window_size=config.window_size,
+                #     stride=config.stride,
+                # )
 
             ## Gather it.
             p = np.concatenate([p, p_], axis=0)
@@ -307,5 +489,5 @@ def main(config: dict) -> None:
 
 
 if __name__ == "__main__":
-    config = define_config()
+    config = define_argparser()
     main(config)
