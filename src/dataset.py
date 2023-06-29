@@ -3,6 +3,8 @@ import lightning as L
 
 import argparse
 
+import multiprocessing as mp
+
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 
 from typing import Dict
@@ -37,7 +39,7 @@ class MinimumRiskTrainingDataModule(L.LightningDataModule):
         return DataLoader(
             self.ds,
             batch_size=self.config.batch_size,
-            num_workers=self.config.num_workers,
+            num_workers=min(self.config.num_workers, mp.cpu_count()),
         )
 
 

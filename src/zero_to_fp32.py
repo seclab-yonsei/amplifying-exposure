@@ -22,7 +22,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from pathlib import Path
-import time
+import shutil
 import deepspeed
 
 deepspeed.ops.op_builder.CPUAdamBuilder().load()
@@ -709,8 +709,17 @@ if __name__ == "__main__":
     debug = args.debug
 
     ## Walk all checkpoint folders.
-    for checkpoint_dir in Path(args.checkpoint_root_dir).glob("*"):
-        output_file = checkpoint_dir / Path("pytorch_model.bin")
+    # for checkpoint_dir in Path(args.checkpoint_root_dir).glob("*"):
+    #     output_file = checkpoint_dir / Path("pytorch_model.bin")
 
-        ## Save all checkpoints.
-        convert_zero_checkpoint_to_fp32_state_dict(checkpoint_dir, output_file)
+    #     ## Save all checkpoints.
+    #     convert_zero_checkpoint_to_fp32_state_dict(checkpoint_dir, output_file)
+
+    ## Make clean.
+    for checkpoint_dir in sorted(
+        list(Path(args.checkpoint_root_dir).glob("*"))
+    ):
+        dir_name = checkpoint_dir / Path("checkpoint")
+
+        shutil.rmtree(dir_name)
+        print(f"Checkpoint folder '{dir_name}' is now clean")

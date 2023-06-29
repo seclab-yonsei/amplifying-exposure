@@ -13,11 +13,11 @@ cp -r /mnt/prj/mrt /mnt/block-storage/mrt
 cd /mnt/block-storage/mrt
 
 ## Make a symbolic links.
-mkdir -p /mnt/prj/$NOWTIME/ckpt
-touch /mnt/prj/$NOWTIME/run_log.log
+mkdir -p /mnt/prj/ckpt/$NOWTIME
+touch /mnt/prj/ckpt/$NOWTIME/run_log.log
 
-ln -s /mnt/prj/$NOWTIME/ckpt ckpt
-ln -s /mnt/prj/$NOWTIME/run_log.log run_log.log
+ln -s /mnt/prj/ckpt/$NOWTIME ./ckpt/$NOWTIME
+ln -s /mnt/prj/ckpt/$NOWTIME/run_log.log ./ckpt/$NOWTIME/run_log.log
 
 ## Install all requirements in local. (i.e., not 'conda env' or 'venv', ...)
 sudo apt-get update
@@ -35,9 +35,6 @@ wandb login $WANDB_API_KEY
 ## We have only 100GB storage in home directory ;(
 export HF_DATASETS_CACHE="/mnt/block-storage/.cache/huggingface/datasets"
 export TRANSFORMERS_CACHE="/mnt/block-storage/.cache/huggingface/transformers"
-
-## Record notime to the config.yml file.
-echo "nowtime: $NOWTIME" >> config.yml
 
 ## Train and record all outputs (stdout, stderr) to a log file.
 deepspeed --num_gpus=2 train.py \
@@ -66,10 +63,12 @@ deepspeed --num_gpus=2 train.py \
   --top_k 40 \
   --rl_n_samples 1 \
   --debug \
+  --nowtime $NOWTIME \
   --deepspeed ./assets/ds_config_zero3.json
 
 ## Convert checkpoint.
-# python ./src/zero_to_fp32.py --checkpoint_root_dir ./ckpt/$NOWTIME
+python ./src/zero_to_fp32.py \
+  --checkpoint_root_dir ./ckpt/$NOWTIME
 
 ## Return.
 exit 0

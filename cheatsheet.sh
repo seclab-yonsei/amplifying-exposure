@@ -25,9 +25,6 @@ export TRANSFORMERS_CACHE="/mnt/block-storage/.cache/huggingface/transformers"
 ln -s /mnt/block-storage/ckpt ckpt
 
 ## Train.
-deepspeed --num_gpus=1 train.py --deepspeed ./assets/ds_config_zero3.json
-deepspeed --num_gpus=2 train.py --deepspeed ./assets/ds_config_zero3.json
-
 deepspeed --num_gpus=2 train.py \
   --pretrained_model_name EleutherAI/gpt-neo-1.3B \
   --revision main \
@@ -58,18 +55,35 @@ deepspeed --num_gpus=2 train.py \
 
 ## Convert deepspeed model to fp32 and make clean.
 python ./src/zero_to_fp32.py \
-  --checkpoint_root_dir ./ckpt/20230627-203244
+  --checkpoint_root_dir ./ckpt/20230628-205233
 
 ## Extract.
 python extract.py \
   --load_from_checkpoint \
-  --checkpoint_path ckpt/20230627-203244/epoch=0-step=2.ckpt/pytorch_model.bin \
+  --checkpoint_path ckpt/20230628-205233/epoch=0-step=19.ckpt/pytorch_model.bin \
   --pretrained_model_name EleutherAI/gpt-neo-1.3B \
   --revision main \
   --device cuda:0 \
   --n 100_000 \
   --k 100 \
-  --batch_size 32 \
+  --batch_size 80 \
+  --do_sample \
+  --min_new_tokens 256 \
+  --max_new_tokens 256 \
+  --no_repeat_ngram_size 3 \
+  --top_p 0.95 \
+  --top_k 40 \
+  --debug
+
+python extract.py \
+  --load_from_checkpoint \
+  --checkpoint_path ckpt/20230628-205233/epoch=9-step=190.ckpt/pytorch_model.bin \
+  --pretrained_model_name EleutherAI/gpt-neo-1.3B \
+  --revision main \
+  --device cuda:1 \
+  --n 100_000 \
+  --k 100 \
+  --batch_size 80 \
   --do_sample \
   --min_new_tokens 256 \
   --max_new_tokens 256 \

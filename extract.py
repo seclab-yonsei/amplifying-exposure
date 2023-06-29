@@ -251,7 +251,7 @@ def generate(config: argparse.Namespace, tok, model, prompt: str) -> np.ndarray:
         top_p=config.top_p,
         top_k=config.top_k,
     )
-    ## |gen_tokens| = (batch_size, max_length=min_length)
+    ## |gen_tokens| = (batch_size, length)
 
     ## Don't forget detaching from gpu into cpu.
     return gen_tokens.cpu().numpy()
