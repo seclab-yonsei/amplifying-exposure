@@ -66,34 +66,12 @@ def define_argparser() -> argparse.Namespace:
 
     ## Dataset.
     p.add_argument(
-        "--samples_per_epoch",
-        type=int,
-        default=10_000,
-        help=" ".join(
-            [
-                "The number of training data to be included in one epoch.",
-                "Default=%(default)s",
-            ]
-        ),
-    )
-    p.add_argument(
         "--batch_size",
         type=int,
         default=16,
         help=" ".join(
             [
                 "Number of samples to process in one training batch.",
-                "Default=%(default)s",
-            ]
-        ),
-    )
-    p.add_argument(
-        "--eval_batch_size",
-        type=int,
-        default=64,
-        help=" ".join(
-            [
-                "Number of samples to process in one evaluation batch.",
                 "Default=%(default)s",
             ]
         ),
@@ -137,12 +115,12 @@ def define_argparser() -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--every_n_epochs",
+        "--save_every_n_train_steps",
         type=int,
         default=1,
         help=" ".join(
             [
-                "Number of epochs between checkpoints.",
+                "Number of steps between checkpoints.",
                 "Default=%(default)s",
             ]
         ),
@@ -161,17 +139,6 @@ def define_argparser() -> argparse.Namespace:
     )
 
     ## Trainer.
-    p.add_argument(
-        "--buffer_size",
-        type=int,
-        default=1_000,
-        help=" ".join(
-            [
-                "The size of the buffer to store the pre-generated samples.",
-                "Default=%(default)s",
-            ]
-        ),
-    )
     p.add_argument(
         "--accelerator",
         type=str,
@@ -208,7 +175,7 @@ def define_argparser() -> argparse.Namespace:
     p.add_argument(
         "--accumulate_grad_batches",
         type=int,
-        default=4,
+        default=1,
         help=" ".join(
             [
                 "Whether to update the gradient every few steps or not.",
@@ -217,12 +184,12 @@ def define_argparser() -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--max_epochs",
+        "--max_steps",
         type=int,
-        default=10,
+        default=10_000,
         help=" ".join(
             [
-                "Stop training once this number of epochs is reached.",
+                "Stop training once this number of steps is reached.",
                 "Default=%(default)s",
             ]
         ),
@@ -267,7 +234,7 @@ def define_argparser() -> argparse.Namespace:
     p.add_argument(
         "--num_beams",
         type=int,
-        default=4,
+        default=1,
         help=" ".join(
             [
                 "Number of beams for beam search.",
@@ -337,6 +304,18 @@ def define_argparser() -> argparse.Namespace:
     )
 
     ## MRT.
+    p.add_argument(
+        "--alpha",
+        type=float,
+        default=0.002,
+        help=" ".join(
+            [
+                "Hyperparameter that determines the ratio between rl loss and",
+                "cs loss.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
     p.add_argument(
         "--rl_n_samples",
         type=int,
@@ -420,8 +399,9 @@ def get_callbacks(
         TQDMProgressBar(refresh_rate=refresh_rate),
         ModelCheckpoint(
             dirpath=str(Path(config.ckpt, config.nowtime)),
+            filename="step-{step:05d}.loss-{loss:.2f}",
             verbose=True,
-            every_n_epochs=config.every_n_epochs,
+            every_n_train_steps=config.save_every_n_train_steps,
             save_top_k=config.save_top_k,
         ),
         LearningRateMonitor(logging_interval="step"),
@@ -481,7 +461,7 @@ def main(config: argparse.Namespace) -> None:
         callbacks=get_callbacks(config),
         # fast_dev_run=True,
         accumulate_grad_batches=config.accumulate_grad_batches,
-        max_epochs=config.max_epochs,
+        max_steps=config.max_steps,
         log_every_n_steps=config.logging_interval,
         detect_anomaly=config.detect_anomaly,
         default_root_dir=config.ckpt,

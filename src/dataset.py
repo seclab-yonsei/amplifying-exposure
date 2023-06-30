@@ -15,7 +15,6 @@ class MinimumRiskTrainingDataModule(L.LightningDataModule):
         super().__init__()
 
         self.eos_token_id = tok.eos_token_id
-        self.samples_per_epoch = config.samples_per_epoch
         self.config = config
 
     def setup(self, stage: str):
@@ -24,11 +23,11 @@ class MinimumRiskTrainingDataModule(L.LightningDataModule):
         Args:
             stage (str): Meaningless arguments required for overwritting
         """
-        self.ds = EOSTokenDataset(
-            eos_token_id=self.eos_token_id,
-            samples_per_epoch=self.samples_per_epoch,
-        )
-        # self.ds = EOSTokenIterableDataset(eos_token_id=self.eos_token_id)
+        # self.ds = EOSTokenDataset(
+        #     eos_token_id=self.eos_token_id,
+        #     samples_per_epoch=self.samples_per_epoch,
+        # )
+        self.ds = EOSTokenIterableDataset(eos_token_id=self.eos_token_id)
 
     def train_dataloader(self) -> DataLoader:
         """Returns a training dataloader.

@@ -40,30 +40,29 @@ export TRANSFORMERS_CACHE="/mnt/block-storage/.cache/huggingface/transformers"
 deepspeed --num_gpus=2 train.py \
   --pretrained_model_name EleutherAI/gpt-neo-1.3B \
   --revision main \
-  --samples_per_epoch 10_000 \
-  --batch_size 64 \
+  --batch_size 12 \
   --num_workers 24 \
   --wandb_project mrt \
   --ckpt ckpt \
-  --every_n_epochs 1 \
+  --save_every_n_train_steps 1_000 \
   --save_top_k -1 \
-  --buffer_size 1_000 \
   --accelerator gpu \
   --devices 2 \
   --precision 16-mixed \
-  --accumulate_grad_batches 4 \
-  --max_epochs 10 \
+  --accumulate_grad_batches 1 \
+  --max_steps 10_000 \
   --logging_interval 1 \
   --lr 2e-5 \
   --do_sample \
-  --min_new_tokens 64 \
-  --max_new_tokens 64 \
+  --num_beams 1 \
+  --min_new_tokens 256 \
+  --max_new_tokens 256 \
   --no_repeat_ngram_size 3 \
-  --top_p 0.95 \
-  --top_k 40 \
+  --top_p 1 \
+  --top_k 50 \
+  --alpha 0.002 \
   --rl_n_samples 1 \
   --debug \
-  --nowtime $NOWTIME \
   --deepspeed ./assets/ds_config_zero3.json
 
 ## Convert checkpoint.

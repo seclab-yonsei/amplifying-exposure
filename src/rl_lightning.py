@@ -1,14 +1,9 @@
 import torch
 import lightning as L
 
-import random
-import tqdm
-
 import numpy as np
 
-from deepspeed.accelerator import get_accelerator
 from deepspeed.ops.adam import DeepSpeedCPUAdam
-from operator import itemgetter
 
 from src.score import GPTScorer
 
@@ -25,15 +20,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
         self.alpha = 0.002
 
         ## Auto-parameters.
-        self.per_replica_batch_size = (
-            self.config.batch_size * self.config.accumulate_grad_batches
-        )
-        self.global_batch_size = (
-            self.per_replica_batch_size * self.config.devices
-        )
-        self.total_steps = (
-            int(np.ceil(self.config.samples_per_epoch / self.global_batch_size))
-            * self.config.max_epochs
+        self.total_steps = int(
+            np.ceil(self.config.max_steps / self.config.devices)
         )
 
         ## Replay buffer.
@@ -41,85 +29,6 @@ class MinimumRiskTrainingModule(L.LightningModule):
 
         ## Save hyper-parameters to self.hparams (auto-logged by W&B).
         self.save_hyperparameters(ignore=["model"])
-
-    @torch.inference_mode()
-    def on_train_start(self) -> None:
-        """Fill the replay buffer before starting the training."""
-        device = self.model.device
-
-        ## Make a prompt.
-        input_ids = torch.LongTensor([self.tok.eos_token_id]).to(device)
-
-        prompt_len = input_ids.size(0)  ## not size(1)
-        assert prompt_len == 1
-
-        ## Prepare a local buffer (per device).
-        buf = []
-
-        ## Get ready to start `tqdm`.
-        tqdm_iterator = tqdm.tqdm(
-            desc=f"Preparing a replay buffer ({device})",
-            position=(
-                int(str(device).split(":")[-1])
-                if str(device).startswith("cuda")
-                else 0
-            ),
-            total=self.config.buffer_size,
-        )
-        with tqdm_iterator as pbar:
-            for i in range(
-                0, self.config.buffer_size, self.config.eval_batch_size
-            ):
-                bs = (  ## more batch size can be allowed in inference mode
-                    self.config.eval_batch_size
-                    if i + self.config.eval_batch_size < self.config.buffer_size
-                    else self.config.buffer_size - i
-                )
-                gen_tokens = (
-                    self.model.generate(
-                        input_ids.repeat(bs, 1),
-                        do_sample=self.config.do_sample,
-                        num_beams=self.config.num_beams,
-                        min_length=self.config.min_new_tokens + prompt_len,
-                        max_length=self.config.max_new_tokens + prompt_len,
-                        no_repeat_ngram_size=self.config.no_repeat_ngram_size,
-                        top_p=self.config.top_p,
-                        top_k=self.config.top_k,
-                    )
-                    .clone()
-                    .detach()
-                )
-                rewards = self._get_reward(gen_tokens)
-
-                ## Stack.
-                assert gen_tokens.size(0) == rewards.size(0)
-                buf += [
-                    {"y": g, "reward": r} for g, r in zip(gen_tokens, rewards)
-                ]
-
-                ## Update pbar.
-                pbar.update(gen_tokens.size(0))
-
-        ## Extend our buffer.
-        assert len(buf) == self.config.buffer_size
-        self.replay_buffer += buf
-        ## |replay_buffer| = (buffer_size,)
-
-        ## Print information of the replay buffer.
-        r = torch.stack([d["reward"] for d in buf])
-        features = {
-            "max": r.max(),
-            "min": r.min(),
-            "avg": r.mean(),
-            "med": r.median(),
-        }
-        print(
-            f"[Replay buffer ({device})]",
-            ", ".join([f"{k}: {v:.2f}" for k, v in features.items()]),
-        )
-
-        ## Flush caches.
-        get_accelerator().empty_cache()
 
     def forward(self, *args, **kwargs):
         """Model forward step.
@@ -176,65 +85,6 @@ class MinimumRiskTrainingModule(L.LightningModule):
         reward = zlib / ppl
         ## |reward| = (batch_size,)
         return reward
-
-    @torch.inference_mode()
-    def _sample_rewards_from_replay_buffer(self, k: int) -> torch.Tensor:
-        """Calculate the average reward in the replay buffer.
-
-        Args:
-            k (int): The number we want to sample rewards
-                - |k| = (1,)
-
-        Returns:
-            torch.Tensor: Sampled rewards from replay buffer
-                - |rewards| = (k,)
-        """
-        ## Sample rewards from replay buffer.
-        elements = random.sample(self.replay_buffer, k=k)
-        rewards = torch.stack([e["reward"] for e in elements])
-        ## |rewards| = (k,)
-        return rewards
-
-    @torch.inference_mode()
-    def _insert_y_hat_to_replay_buffer(
-        self,
-        y_hat: torch.Tensor,
-        y_hat_reward: torch.Tensor,
-        order: str = "descending",
-    ) -> None:
-        """Add the y_hats generated by each step to the replay buffer.
-
-        Args:
-            y_hat (torch.Tensor): Generated tokens (same as labels)
-            y_hat_reward (torch.Tensor): Reward for each generated token
-            order (str): The criteria for reward to select k samples to keep
-                         the size of the replay buffer constant.
-        """
-        ## Insert items.
-        buf = [{"y": g, "reward": r} for g, r in zip(y_hat, y_hat_reward)]
-        self.replay_buffer += buf
-
-        ## Select items uniform randomly.
-        assert order in ["ascending", "descending", "random"]
-        if order == "ascending":
-            self.replay_buffer = sorted(
-                self.replay_buffer,
-                key=itemgetter("reward"),
-                reverse=False,
-            )[: self.config.buffer_size]
-
-        elif order == "descending":
-            self.replay_buffer = sorted(
-                self.replay_buffer,
-                key=itemgetter("reward"),
-                reverse=True,
-            )[: self.config.buffer_size]
-
-        elif order == "random":
-            self.replay_buffer = random.sample(
-                self.replay_buffer,
-                k=self.config.buffer_size,
-            )
 
     def training_step(self, batch: dict, batch_idx) -> dict:
         """Functions that overwrote the training step of the Lightning module.
@@ -317,9 +167,9 @@ class MinimumRiskTrainingModule(L.LightningModule):
         ## |loss| = (1,)
 
         ## Insert y_hat and their rewards.
-        self._insert_y_hat_to_replay_buffer(
-            y_hat.clone().detach(), actor_reward
-        )
+        # self._insert_y_hat_to_replay_buffer(
+        #     y_hat.clone().detach(), actor_reward
+        # )
 
         ## Make a return dict.
         metrics = {
