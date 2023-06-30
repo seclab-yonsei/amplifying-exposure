@@ -6,6 +6,7 @@ import tqdm
 
 import numpy as np
 
+from deepspeed.accelerator import get_accelerator
 from deepspeed.ops.adam import DeepSpeedCPUAdam
 from operator import itemgetter
 
@@ -35,6 +36,9 @@ class MinimumRiskTrainingModule(L.LightningModule):
             * self.config.max_epochs
         )
 
+        ## Replay buffer.
+        self.replay_buffer = []
+
         ## Save hyper-parameters to self.hparams (auto-logged by W&B).
         self.save_hyperparameters(ignore=["model"])
 
@@ -63,16 +67,19 @@ class MinimumRiskTrainingModule(L.LightningModule):
             total=self.config.buffer_size,
         )
         with tqdm_iterator as pbar:
-            for i in range(0, self.config.buffer_size, self.config.batch_size):
+            for i in range(
+                0, self.config.buffer_size, self.config.eval_batch_size
+            ):
                 bs = (  ## more batch size can be allowed in inference mode
-                    self.config.batch_size
-                    if i + self.config.batch_size < self.config.buffer_size
+                    self.config.eval_batch_size
+                    if i + self.config.eval_batch_size < self.config.buffer_size
                     else self.config.buffer_size - i
                 )
                 gen_tokens = (
                     self.model.generate(
                         input_ids.repeat(bs, 1),
                         do_sample=self.config.do_sample,
+                        num_beams=self.config.num_beams,
                         min_length=self.config.min_new_tokens + prompt_len,
                         max_length=self.config.max_new_tokens + prompt_len,
                         no_repeat_ngram_size=self.config.no_repeat_ngram_size,
@@ -95,7 +102,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
 
         ## Extend our buffer.
         assert len(buf) == self.config.buffer_size
-        self.replay_buffer = buf
+        self.replay_buffer += buf
         ## |replay_buffer| = (buffer_size,)
 
         ## Print information of the replay buffer.
@@ -110,6 +117,9 @@ class MinimumRiskTrainingModule(L.LightningModule):
             f"[Replay buffer ({device})]",
             ", ".join([f"{k}: {v:.2f}" for k, v in features.items()]),
         )
+
+        ## Flush caches.
+        get_accelerator().empty_cache()
 
     def forward(self, *args, **kwargs):
         """Model forward step.
@@ -168,17 +178,22 @@ class MinimumRiskTrainingModule(L.LightningModule):
         return reward
 
     @torch.inference_mode()
-    def _fetch_reward_from_replay_buffer(self) -> torch.Tensor:
+    def _sample_rewards_from_replay_buffer(self, k: int) -> torch.Tensor:
         """Calculate the average reward in the replay buffer.
 
+        Args:
+            k (int): The number we want to sample rewards
+                - |k| = (1,)
+
         Returns:
-            torch.Tensor: Average reward for replay buffer
-                - |m| = (1,)
+            torch.Tensor: Sampled rewards from replay buffer
+                - |rewards| = (k,)
         """
-        ## Calculate the average.
-        m = torch.stack([d["reward"] for d in self.replay_buffer]).mean()
-        ## |m| = (1,)
-        return m
+        ## Sample rewards from replay buffer.
+        elements = random.sample(self.replay_buffer, k=k)
+        rewards = torch.stack([e["reward"] for e in elements])
+        ## |rewards| = (k,)
+        return rewards
 
     @torch.inference_mode()
     def _insert_y_hat_to_replay_buffer(
@@ -192,6 +207,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
         Args:
             y_hat (torch.Tensor): Generated tokens (same as labels)
             y_hat_reward (torch.Tensor): Reward for each generated token
+            order (str): The criteria for reward to select k samples to keep
+                         the size of the replay buffer constant.
         """
         ## Insert items.
         buf = [{"y": g, "reward": r} for g, r in zip(y_hat, y_hat_reward)]
@@ -240,12 +257,12 @@ class MinimumRiskTrainingModule(L.LightningModule):
         y_hat: torch.Tensor = self.model.generate(
             x,
             do_sample=self.config.do_sample,
+            num_beams=self.config.num_beams,
             min_length=self.config.min_new_tokens + prompt_len,
             max_length=self.config.max_new_tokens + prompt_len,
             no_repeat_ngram_size=self.config.no_repeat_ngram_size,
             top_p=self.config.top_p,
             top_k=self.config.top_k,
-            synced_gpus=True,
         )
         logits: torch.Tensor = self(input_ids=y_hat, return_dict=True).logits
         ce_loss = self.score_fn.ce_loss_without_reduction(
@@ -260,11 +277,26 @@ class MinimumRiskTrainingModule(L.LightningModule):
             actor_reward = self._get_reward(y_hat)
             ## |actor_reward| = (batch_size,)
 
-            ## We simplify the calculation process by calling the average reward
-            ## of the sample, which we have already created with the replay buffer.
-            baseline = self._fetch_reward_from_replay_buffer()
-            baseline.to(self.model.device)
-            ## |baseline| = (1,)
+            ## Take samples as many as n_samples,
+            ## and get average rewards for them.
+            baseline = []
+
+            for _ in range(self.config.rl_n_samples):
+                sampled_y_hat: torch.Tensor = self.model.generate(
+                    x,
+                    do_sample=self.config.do_sample,
+                    num_beams=self.config.num_beams,
+                    min_length=self.config.min_new_tokens + prompt_len,
+                    max_length=self.config.max_new_tokens + prompt_len,
+                    no_repeat_ngram_size=self.config.no_repeat_ngram_size,
+                    top_p=self.config.top_p,
+                    top_k=self.config.top_k,
+                )
+                baseline += [self._get_reward(sampled_y_hat)]
+
+            ## Get average of k samples.
+            ##  - |baseline| = (rl_n_samples, batch_size) -> (batch_size,)
+            baseline = torch.stack(baseline).mean(dim=0)  ## not stack
 
             ## Now, we have relatively expected cumulative reward.
             ## Which score can be drawn from actor_reward substracted by baseline.
@@ -292,7 +324,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
         ## Make a return dict.
         metrics = {
             "actor": actor_reward.mean(),
-            "baseline": baseline,
+            "baseline": baseline.mean(),
             "reward": reward.mean(),
             "zlib": zlib.mean(),
             "rl_loss": rl_loss,

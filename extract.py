@@ -306,7 +306,7 @@ def save_results(config: argparse.Namespace, df: pd.DataFrame) -> None:
         if config.load_from_checkpoint
         else "naive.csv"
     )
-    save_path = Path(config.checkpoint_path).parent / Path(fname)
+    save_path = Path(config.checkpoint_path).parent.parent / Path(fname)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     df.to_csv(save_path, encoding="utf-8", index=False, header=True)

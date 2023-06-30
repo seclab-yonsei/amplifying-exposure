@@ -29,7 +29,8 @@ deepspeed --num_gpus=2 train.py \
   --pretrained_model_name EleutherAI/gpt-neo-1.3B \
   --revision main \
   --samples_per_epoch 10_000 \
-  --batch_size 64 \
+  --batch_size 16 \
+  --eval_batch_size 32 \
   --num_workers 24 \
   --wandb_project mrt \
   --ckpt ckpt \
@@ -39,17 +40,16 @@ deepspeed --num_gpus=2 train.py \
   --accelerator gpu \
   --devices 2 \
   --precision 16-mixed \
-  --accumulate_grad_batches 4 \
+  --accumulate_grad_batches 1 \
   --max_epochs 10 \
   --logging_interval 1 \
   --lr 2e-5 \
-  --do_sample \
-  --min_new_tokens 64 \
-  --max_new_tokens 64 \
+  --num_beams 4 \
+  --min_new_tokens 128 \
+  --max_new_tokens 128 \
   --no_repeat_ngram_size 3 \
-  --top_p 0.95 \
-  --top_k 40 \
-  --rl_n_samples 1 \
+  --top_p 1 \
+  --top_k 50 \
   --debug \
   --deepspeed ./assets/ds_config_zero3.json
 
@@ -66,7 +66,7 @@ python extract.py \
   --device cuda:0 \
   --n 100_000 \
   --k 100 \
-  --batch_size 80 \
+  --batch_size 64 \
   --do_sample \
   --min_new_tokens 256 \
   --max_new_tokens 256 \
@@ -83,7 +83,7 @@ python extract.py \
   --device cuda:1 \
   --n 100_000 \
   --k 100 \
-  --batch_size 80 \
+  --batch_size 64 \
   --do_sample \
   --min_new_tokens 256 \
   --max_new_tokens 256 \

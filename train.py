@@ -79,10 +79,21 @@ def define_argparser() -> argparse.Namespace:
     p.add_argument(
         "--batch_size",
         type=int,
+        default=16,
+        help=" ".join(
+            [
+                "Number of samples to process in one training batch.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
+        "--eval_batch_size",
+        type=int,
         default=64,
         help=" ".join(
             [
-                "Number of samples to process in one batch.",
+                "Number of samples to process in one evaluation batch.",
                 "Default=%(default)s",
             ]
         ),
@@ -254,6 +265,18 @@ def define_argparser() -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--num_beams",
+        type=int,
+        default=4,
+        help=" ".join(
+            [
+                "Number of beams for beam search.",
+                "1 means no beam search.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
         "--min_new_tokens",
         type=int,
         default=64,
@@ -290,7 +313,7 @@ def define_argparser() -> argparse.Namespace:
     p.add_argument(
         "--top_p",
         type=float,
-        default=0.95,
+        default=1,
         help=" ".join(
             [
                 "If set to float < 1, only the smallest set of most probable",
@@ -303,7 +326,7 @@ def define_argparser() -> argparse.Namespace:
     p.add_argument(
         "--top_k",
         type=int,
-        default=40,
+        default=50,
         help=" ".join(
             [
                 "The number of highest probability vocabulary tokens to keep",
