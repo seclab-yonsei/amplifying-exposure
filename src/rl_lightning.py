@@ -16,13 +16,17 @@ class MinimumRiskTrainingModule(L.LightningModule):
         self.model = model
         self.config = config
 
-        self.score_fn = GPTScorer(tok=tok)
-        self.alpha = 0.002
-
-        ## Auto-parameters.
-        self.total_steps = int(
-            np.ceil(self.config.max_steps / self.config.devices)
-        )
+        ## Auto-parameter.
+        self.lr = self.config.lr
+        self.alpha = self.config.alpha
+        self.do_sample = self.config.do_sample
+        self.num_beams = self.config.num_beams
+        self.min_new_tokens = self.config.min_new_tokens
+        self.max_new_tokens = self.config.max_new_tokens
+        self.no_repeat_ngram_size = self.config.no_repeat_ngram_size
+        self.top_p = self.config.top_p
+        self.top_k = self.config.top_k
+        self.rl_n_samples = self.config.rl_n_samples
 
         ## Replay buffer.
         self.replay_buffer = []
@@ -38,26 +42,13 @@ class MinimumRiskTrainingModule(L.LightningModule):
         """
         return self.model(*args, **kwargs)
 
-    def configure_optimizers(self) -> dict:
+    def configure_optimizers(self) -> torch.optim.Optimizer:
         """Returns the configuration for the optimizers.
 
         Returns:
-            dict: Configuration for optimizers
+            torch.optim.Optimizer: Optimizer
         """
-        optimizer = DeepSpeedCPUAdam(self.parameters(), lr=self.config.lr)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer,
-            max_lr=self.config.lr,
-            total_steps=self.total_steps,
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-                "name": "Learning Rate",
-            },
-        }
+        return DeepSpeedCPUAdam(self.parameters(), lr=self.lr)
 
     @torch.inference_mode()
     def _get_reward(self, y: torch.Tensor) -> torch.Tensor:
@@ -72,11 +63,11 @@ class MinimumRiskTrainingModule(L.LightningModule):
                 - |reward| = (batch_size,)
         """
         ## Calcualte reward.
-        zlib = self.score_fn.zlib_entropy(y).to(y.device)
+        zlib = GPTScorer.zlib_entropy(self.tok, y).to(y.device)
         ## |zlib| = (batch_size,)
 
         logits = self(input_ids=y, return_dict=True).logits
-        loss = self.score_fn.ce_loss_without_reduction(logits=logits, labels=y)
+        loss = GPTScorer.ce_loss_without_reduction(logits=logits, labels=y)
         ppl = torch.exp(loss)
         ## |logits| = (batch_size, length)
         ## |loss| = (batch_size,)
@@ -106,16 +97,16 @@ class MinimumRiskTrainingModule(L.LightningModule):
         ## Sample y_hat, logits, and the loss.
         y_hat: torch.Tensor = self.model.generate(
             x,
-            do_sample=self.config.do_sample,
-            num_beams=self.config.num_beams,
-            min_length=self.config.min_new_tokens + prompt_len,
-            max_length=self.config.max_new_tokens + prompt_len,
-            no_repeat_ngram_size=self.config.no_repeat_ngram_size,
-            top_p=self.config.top_p,
-            top_k=self.config.top_k,
+            do_sample=self.do_sample,
+            num_beams=self.num_beams,
+            min_length=self.min_new_tokens + prompt_len,
+            max_length=self.max_new_tokens + prompt_len,
+            no_repeat_ngram_size=self.no_repeat_ngram_size,
+            top_p=self.top_p,
+            top_k=self.top_k,
         )
         logits: torch.Tensor = self(input_ids=y_hat, return_dict=True).logits
-        ce_loss = self.score_fn.ce_loss_without_reduction(
+        ce_loss = GPTScorer.ce_loss_without_reduction(
             logits=logits, labels=y_hat
         )
         ## |y_hat| = (batch_size, length)
@@ -131,16 +122,16 @@ class MinimumRiskTrainingModule(L.LightningModule):
             ## and get average rewards for them.
             baseline = []
 
-            for _ in range(self.config.rl_n_samples):
+            for _ in range(self.rl_n_samples):
                 sampled_y_hat: torch.Tensor = self.model.generate(
                     x,
-                    do_sample=self.config.do_sample,
-                    num_beams=self.config.num_beams,
-                    min_length=self.config.min_new_tokens + prompt_len,
-                    max_length=self.config.max_new_tokens + prompt_len,
-                    no_repeat_ngram_size=self.config.no_repeat_ngram_size,
-                    top_p=self.config.top_p,
-                    top_k=self.config.top_k,
+                    do_sample=self.do_sample,
+                    num_beams=self.num_beams,
+                    min_length=self.min_new_tokens + prompt_len,
+                    max_length=self.max_new_tokens + prompt_len,
+                    no_repeat_ngram_size=self.no_repeat_ngram_size,
+                    top_p=self.top_p,
+                    top_k=self.top_k,
                 )
                 baseline += [self._get_reward(sampled_y_hat)]
 

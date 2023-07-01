@@ -32,15 +32,15 @@ deepspeed --num_gpus=2 train.py \
   --num_workers 24 \
   --wandb_project mrt \
   --ckpt ckpt \
-  --save_every_n_train_steps 1_000 \
+  --save_every_n_train_steps 100 \
   --save_top_k -1 \
   --accelerator gpu \
   --devices 2 \
   --precision 16-mixed \
   --accumulate_grad_batches 1 \
-  --max_steps 10_000 \
+  --max_steps 1_000 \
   --logging_interval 1 \
-  --lr 2e-5 \
+  --lr 1e-5 \
   --do_sample \
   --num_beams 1 \
   --min_new_tokens 256 \

@@ -310,8 +310,7 @@ def define_argparser() -> argparse.Namespace:
         default=0.002,
         help=" ".join(
             [
-                "Hyperparameter that determines the ratio between rl loss and",
-                "cs loss.",
+                "Hyperparameter that determines the ratio between rl/ce loss.",
                 "Default=%(default)s",
             ]
         ),

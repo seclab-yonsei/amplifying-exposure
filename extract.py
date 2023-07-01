@@ -391,8 +391,6 @@ def main(config: dict) -> None:
     z = []  ## zlib entropy
     # w = []  ## PPL of sliding windows
 
-    scorer = GPTScorer(tok=tok)
-
     with tqdm.tqdm(total=len(tokens), desc="Inferring Membership") as pbar:
         num_batches = int(np.ceil(len(tokens) / config.batch_size))
 
@@ -407,8 +405,8 @@ def main(config: dict) -> None:
                 labels = torch.Tensor(tokens[sp:ep]).long().to(model.device)
                 logits = model(input_ids=labels, return_dict=True).logits
 
-                p_ = scorer.perplexity(logits=logits, labels=labels)
-                z_ = scorer.zlib_entropy(labels=labels)
+                p_ = GPTScorer.perplexity(logits=logits, labels=labels)
+                z_ = GPTScorer.zlib_entropy(tok, labels=labels)
                 # w_ = scorer.window_perplexity(
                 #     batch=batch,
                 #     window_size=config.window_size,

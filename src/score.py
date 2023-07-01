@@ -6,10 +6,7 @@ import numpy as np
 
 
 class GPTScorer:
-    def __init__(self, tok):
-        super(GPTScorer, self).__init__()
-        self.tok = tok
-
+    @staticmethod
     def ce_loss_without_reduction(
         self,
         logits: torch.Tensor,
@@ -52,6 +49,7 @@ class GPTScorer:
         ## |loss| = (batch_size,)
         return loss
 
+    @staticmethod
     @torch.inference_mode()
     def perplexity(
         self,
@@ -78,11 +76,13 @@ class GPTScorer:
         ## |ppl| = (batch_size,)
         return ppl
 
+    @staticmethod
     @torch.inference_mode()
-    def zlib_entropy(self, labels: torch.Tensor) -> torch.Tensor:
+    def zlib_entropy(self, tok, labels: torch.Tensor) -> torch.Tensor:
         """Compute the zlib entropy for each element in the label.
 
         Args:
+            tok (_type_): A tokenizer
             labels (torch.Tensor): An answer vector
                 - |labels| = (batch_size, length)
 
