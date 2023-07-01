@@ -32,13 +32,13 @@ deepspeed --num_gpus=2 train.py \
   --num_workers 24 \
   --wandb_project mrt \
   --ckpt ckpt \
-  --save_every_n_train_steps 100 \
+  --save_every_n_train_steps 10 \
   --save_top_k -1 \
   --accelerator gpu \
   --devices 2 \
   --precision 16-mixed \
   --accumulate_grad_batches 1 \
-  --max_steps 1_000 \
+  --max_steps 100 \
   --logging_interval 1 \
   --lr 1e-5 \
   --do_sample \
@@ -46,6 +46,7 @@ deepspeed --num_gpus=2 train.py \
   --min_new_tokens 64 \
   --max_new_tokens 64 \
   --no_repeat_ngram_size 3 \
+  --temperature 1.0 \
   --top_p 1 \
   --top_k 50 \
   --alpha 0.002 \
@@ -55,12 +56,11 @@ deepspeed --num_gpus=2 train.py \
 
 ## Convert deepspeed model to fp32 and make clean.
 python ./src/zero_to_fp32.py \
-  --checkpoint_root_dir ./ckpt/20230628-205233
+  --checkpoint_root_dir ./ckpt/20230701-182615
 
 ## Extract.
 python extract.py \
-  --load_from_checkpoint \
-  --checkpoint_path ckpt/20230628-205233/epoch=0-step=19.ckpt/pytorch_model.bin \
+  --checkpoint_path ckpt/20230701-182615/step=010.loss=-3.5996.ckpt/pytorch_model.bin \
   --pretrained_model_name EleutherAI/gpt-neo-1.3B \
   --revision main \
   --device cuda:0 \
@@ -71,13 +71,13 @@ python extract.py \
   --min_new_tokens 256 \
   --max_new_tokens 256 \
   --no_repeat_ngram_size 3 \
-  --top_p 0.95 \
-  --top_k 40 \
+  --top_p 1 \
+  --top_k 50 \
   --debug
 
 python extract.py \
   --load_from_checkpoint \
-  --checkpoint_path ckpt/20230628-205233/epoch=9-step=190.ckpt/pytorch_model.bin \
+  --checkpoint_path ckpt/20230701-182615/step=100.loss=-0.0003.ckpt/pytorch_model.bin \
   --pretrained_model_name EleutherAI/gpt-neo-1.3B \
   --revision main \
   --device cuda:1 \
@@ -88,6 +88,6 @@ python extract.py \
   --min_new_tokens 256 \
   --max_new_tokens 256 \
   --no_repeat_ngram_size 3 \
-  --top_p 0.95 \
-  --top_k 40 \
+  --top_p 1 \
+  --top_k 50 \
   --debug

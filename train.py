@@ -278,6 +278,17 @@ def define_argparser() -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--temperature",
+        type=float,
+        default=1,
+        help=" ".join(
+            [
+                "The value used to modulate the next token probabilities.",
+                "Default=%(default)s",
+            ]
+        ),
+    )
+    p.add_argument(
         "--top_p",
         type=float,
         default=1,
@@ -398,7 +409,7 @@ def get_callbacks(
         TQDMProgressBar(refresh_rate=refresh_rate),
         ModelCheckpoint(
             dirpath=str(Path(config.ckpt, config.nowtime)),
-            filename="step-{step:05d}.loss-{loss:.2f}",
+            filename="{step:03d}.{loss:.4f}",
             verbose=True,
             every_n_train_steps=config.save_every_n_train_steps,
             save_top_k=config.save_top_k,

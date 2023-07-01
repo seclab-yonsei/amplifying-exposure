@@ -24,6 +24,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
         self.min_new_tokens = self.config.min_new_tokens
         self.max_new_tokens = self.config.max_new_tokens
         self.no_repeat_ngram_size = self.config.no_repeat_ngram_size
+        self.temperature = self.config.temperature
         self.top_p = self.config.top_p
         self.top_k = self.config.top_k
         self.rl_n_samples = self.config.rl_n_samples
@@ -63,7 +64,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
                 - |reward| = (batch_size,)
         """
         ## Calcualte reward.
-        zlib = GPTScorer.zlib_entropy(self.tok, y).to(y.device)
+        # zlib = GPTScorer.zlib_entropy(self.tok, y).to(y.device)
         ## |zlib| = (batch_size,)
 
         logits = self(input_ids=y, return_dict=True).logits
@@ -73,7 +74,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
         ## |loss| = (batch_size,)
         ## |ppl| = (batch_size,)
 
-        reward = zlib / ppl
+        # reward = zlib / ppl
+        reward = ppl
         ## |reward| = (batch_size,)
         return reward
 
@@ -102,6 +104,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
             min_length=self.min_new_tokens + prompt_len,
             max_length=self.max_new_tokens + prompt_len,
             no_repeat_ngram_size=self.no_repeat_ngram_size,
+            temperature=self.temperature,
             top_p=self.top_p,
             top_k=self.top_k,
         )
@@ -130,6 +133,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
                     min_length=self.min_new_tokens + prompt_len,
                     max_length=self.max_new_tokens + prompt_len,
                     no_repeat_ngram_size=self.no_repeat_ngram_size,
+                    temperature=self.temperature,
                     top_p=self.top_p,
                     top_k=self.top_k,
                 )
@@ -145,7 +149,7 @@ class MinimumRiskTrainingModule(L.LightningModule):
             ## |reward| = (batch_size,)
 
             ## Compute zlib entropy separately for logging.
-            zlib = actor_reward * torch.exp(ce_loss)
+            zlib = GPTScorer.zlib_entropy(self.tok, y_hat).to(y_hat.device)
             ## |zlib| = (batch_size,)
 
         ## Calculate minimum risk training loss.
@@ -156,11 +160,6 @@ class MinimumRiskTrainingModule(L.LightningModule):
 
         loss = self.alpha * ce_loss + (1 - self.alpha) * rl_loss
         ## |loss| = (1,)
-
-        ## Insert y_hat and their rewards.
-        # self._insert_y_hat_to_replay_buffer(
-        #     y_hat.clone().detach(), actor_reward
-        # )
 
         ## Make a return dict.
         metrics = {
