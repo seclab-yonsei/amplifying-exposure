@@ -28,7 +28,7 @@ ln -s /mnt/block-storage/ckpt ckpt
 deepspeed --num_gpus=2 train.py \
   --pretrained_model_name EleutherAI/gpt-neo-1.3B \
   --revision main \
-  --batch_size 12 \
+  --batch_size 64 \
   --num_workers 24 \
   --wandb_project mrt \
   --ckpt ckpt \
@@ -43,8 +43,8 @@ deepspeed --num_gpus=2 train.py \
   --lr 1e-5 \
   --do_sample \
   --num_beams 1 \
-  --min_new_tokens 256 \
-  --max_new_tokens 256 \
+  --min_new_tokens 64 \
+  --max_new_tokens 64 \
   --no_repeat_ngram_size 3 \
   --top_p 1 \
   --top_k 50 \

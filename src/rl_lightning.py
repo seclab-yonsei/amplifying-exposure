@@ -168,8 +168,8 @@ class MinimumRiskTrainingModule(L.LightningModule):
             "baseline": baseline.mean(),
             "reward": reward.mean(),
             "zlib": zlib.mean(),
-            "rl_loss": rl_loss,
-            "ce_loss": ce_loss,
+            "rl": rl_loss,
+            "ce": ce_loss,
             "loss": loss,
         }
         self.log_dict(metrics, prog_bar=True, logger=True, on_step=True)

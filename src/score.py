@@ -8,7 +8,6 @@ import numpy as np
 class GPTScorer:
     @staticmethod
     def ce_loss_without_reduction(
-        self,
         logits: torch.Tensor,
         labels: torch.Tensor,
     ) -> torch.Tensor:
@@ -51,11 +50,7 @@ class GPTScorer:
 
     @staticmethod
     @torch.inference_mode()
-    def perplexity(
-        self,
-        logits: torch.Tensor,
-        labels: torch.Tensor,
-    ) -> np.ndarray:
+    def perplexity(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
         """Computes the perplexity for each element in the batch.
 
         Args:
@@ -69,7 +64,7 @@ class GPTScorer:
                 - |ppl| = (batch_size,)
         """
         ## Forward and average it by token dimension.
-        loss = self.ce_loss_without_reduction(logits=logits, labels=labels)
+        loss = GPTScorer.ce_loss_without_reduction(logits=logits, labels=labels)
         ## |loss| = (batch_size,)
 
         ppl = np.exp(loss.detach().cpu().numpy())
@@ -78,7 +73,7 @@ class GPTScorer:
 
     @staticmethod
     @torch.inference_mode()
-    def zlib_entropy(self, tok, labels: torch.Tensor) -> torch.Tensor:
+    def zlib_entropy(tok, labels: torch.Tensor) -> torch.Tensor:
         """Compute the zlib entropy for each element in the label.
 
         Args:
@@ -93,9 +88,7 @@ class GPTScorer:
         z = torch.FloatTensor(
             [
                 len(zlib.compress(bytes(sent, encoding="utf-8")))
-                for sent in self.tok.batch_decode(
-                    labels, skip_special_tokens=True
-                )
+                for sent in tok.batch_decode(labels, skip_special_tokens=True)
             ]
         )
         ## |z| = (batch_size,)
