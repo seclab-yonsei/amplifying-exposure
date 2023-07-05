@@ -1,7 +1,10 @@
 .vscode
 test.ipynb
+tmp.ipynb
 wandb/
 ckpt
+__archive__
+assets
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
