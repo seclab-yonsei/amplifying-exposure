@@ -3,17 +3,13 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 import argparse
 import datetime
-import json
 import logging
 import tqdm
 
-import numpy as np
-
-from operator import itemgetter
 from pathlib import Path
 from pytz import timezone
+from typing import List
 
-from src.score import GPTScorer
 from src.utils import define_logger, print_config
 
 
@@ -168,35 +164,7 @@ def generate(config, tok, model, prompt: str) -> torch.Tensor:
     return gen_tokens.detach().cpu()
 
 
-@torch.inference_mode()
-def inference(tok, model, gen_tokens: torch.Tensor) -> torch.Tensor:
-    """Calculate cross entropy loss for the generated tokens without reduction.
-
-    Args:
-        model (_type_): A target model
-        gen_tokens (torch.Tensor): Generated tokens
-            - |gen_tokens| = (batch_size, length)
-
-    Returns:
-        torch.Tensor: Cross entropy loss of generated tokens without reduction
-            - |ce_loss| = (batch_size,)
-    """
-    ## Convert batch into logits and the labels.
-    labels = gen_tokens.to(model.device)
-    logits = model(input_ids=labels, return_dict=True).logits
-    ## |labels| = (batch_size, length)
-    ## |logits| = (batch_size, length, num_vocabs)
-
-    ## Ignore index.
-    labels[labels == tok.pad_token_id] = -100  ## ignore index of CE loss
-
-    ## Calculate ce loss.
-    ce_loss = GPTScorer.ce_loss_without_reduction(logits, labels)
-    ## |ce_loss| = (batch_size,)
-    return ce_loss.detach().cpu()
-
-
-def save_results(config, rslt: list) -> None:
+def save_results(config, rslt: List[str]) -> None:
     """Save the extraction results to a CSV file.
 
     Args:
@@ -207,13 +175,14 @@ def save_results(config, rslt: list) -> None:
     kst = timezone("Asia/Seoul")
     nowtime = datetime.datetime.now(kst).strftime("%Y%m%d-%H%M%S")
     model_name = config.pretrained_model_name.replace("/", "_")
+    n_samples = int(config.n // 1e3)
 
-    fname = f"{model_name}.{config.n}.{nowtime}.jsonl"  ## not json
+    fname = f"{model_name}.{n_samples:03d}k.{nowtime}.txt"
     save_path = Path(config.assets, fname)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(save_path, "w", encoding="utf-8") as f:
-        json.dump(rslt, f, indent=4)
-        f.write("\n")
+        _ = [f.write(f"{r}\n") for r in rslt]
 
     print(f"Results save to {save_path}")
 
@@ -253,9 +222,7 @@ def main(config: argparse.Namespace) -> None:
     if config.device.startswith("cuda") and torch.cuda.is_available():
         model = model.to(device=config.device, non_blocking=True)
 
-    ## ========== ========== ==========
-    ## TEXT SAMPLING
-    ## ========== ========== ==========
+    ## Text sampling.
     rslt = []
     with tqdm.tqdm(total=config.n, desc="Generating Texts") as pbar:
         while True:
@@ -269,45 +236,15 @@ def main(config: argparse.Namespace) -> None:
 
             ## Detokenize and calculate the number of tokens per sample.
             gen_texts = tok.batch_decode(gen_tokens, skip_special_tokens=True)
-            n_tokens = (gen_tokens != tok.pad_token_id).sum(dim=1)
 
             ## Gather it.
-            rslt += [
-                {"text": g, "n_tokens": int(n)}
-                for g, n in zip(gen_texts, n_tokens)
-            ]
+            rslt += gen_texts
 
             ## Update progressbar.
             pbar.update(len(gen_texts))
 
             if len(rslt) >= config.n:
                 break
-
-    ## ========== ========== ==========
-    ## MEMBERSHIP INFERENCE
-    ## ========== ========== ==========
-    rslt = sorted(rslt, key=itemgetter("n_tokens"))
-    with tqdm.tqdm(total=len(rslt), desc="Calculating Loss") as pbar:
-        n_batches = int(np.ceil(len(rslt) / config.batch_size))
-
-        for i in range(n_batches):
-            ## Get a mini-batch from start to end point.
-            sp = i * config.batch_size
-            ep = min((i + 1) * config.batch_size, len(rslt))
-
-            mini_batch = [rslt[j]["text"] for j in range(sp, ep, 1)]
-            mini_batch = tok(mini_batch, padding=True, return_tensors="pt")
-            mini_batch = mini_batch.input_ids
-
-            ## Calculate loss.
-            ce_loss = inference(tok, model, mini_batch)
-
-            ## Save it.
-            for j in range(sp, ep, 1):
-                rslt[j]["loss"] = float(ce_loss[j - sp])
-
-            ## Update progress bar.
-            pbar.update(len(ce_loss))
 
     ## Save.
     save_results(config, rslt)

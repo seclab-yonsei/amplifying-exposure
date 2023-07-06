@@ -1,9 +1,9 @@
 ## Sampling.
-python sampling.py \
+python sampling_texts.py \
     --pretrained_model_name EleutherAI/gpt-neo-1.3B \
     --revision main \
     --device cuda:0 \
-    --n 100_000 \
+    --n 1000 \
     --batch_size 24 \
     --do_sample \
     --min_new_tokens 64 \
@@ -15,4 +15,12 @@ python sampling.py \
     --assets assets \
     --debug
 
-
+## Calculate loss.
+python calculate_loss.py \
+    --pretrained_model_name EleutherAI/gpt-neo-1.3B \
+    --revision main \
+    --device cuda:0 \
+    --save_file \
+    --batch_size 64 \
+    --assets assets \
+    --debug
