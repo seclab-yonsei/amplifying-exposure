@@ -43,22 +43,10 @@ def define_argparser() -> argparse.Namespace:
         help="Name of the model you want to fine-tune.",
     )
     p.add_argument(
-        "--revision",
-        type=str,
-        default="main",
-        help="Revision of the pretrained model.",
-    )
-    p.add_argument(
         "--mask_filling_model_name",
         type=str,
         default="t5-large",  ## 770M
         help="Name of the model you want to fill mask.",
-    )
-    p.add_argument(
-        "--mask_filling_model_revision",
-        type=str,
-        default="main",
-        help="Revision of the mask filling model.",
     )
     p.add_argument(
         "--device",
@@ -185,7 +173,7 @@ def define_argparser() -> argparse.Namespace:
 
 
 @torch.inference_mode()
-def generate(config, tok, model, prompt: str) -> torch.Tensor:
+def generate(config, tok, model, prompt: str = "") -> torch.Tensor:
     """One-step to generate text.
 
     Args:
@@ -199,7 +187,7 @@ def generate(config, tok, model, prompt: str) -> torch.Tensor:
             - |gen_tokens| = (batch_size, length)
     """
     ## Encode it.
-    tokens = tok.encode(prompt, return_tensors="pt")
+    tokens = tok.encode(prompt, return_tensors="pt", add_special_tokens=True)
     tokens = tokens.repeat(config.batch_size, 1)
     tokens = tokens.to(device=model.device, non_blocking=True)
     ## |tokens| = (batch_size, 1)
@@ -457,15 +445,10 @@ def main(config: argparse.Namespace) -> None:
 
     ## Load tokenizer and model.
     ## See: https://huggingface.co/EleutherAI/gpt-neo-2.7B
-    tok = AutoTokenizer.from_pretrained(
-        config.pretrained_model_name,
-        revision=config.revision,
-    )
+    tok = AutoTokenizer.from_pretrained(config.pretrained_model_name)
     model = AutoModelForCausalLM.from_pretrained(
         config.pretrained_model_name,
-        revision=config.revision,
         pad_token_id=tok.eos_token_id,
-        torch_dtype="auto",
     )
     ## Enable padding.
     tok.pad_token = tok.eos_token
@@ -481,7 +464,7 @@ def main(config: argparse.Namespace) -> None:
     with tqdm.tqdm(total=config.n, desc="🛴 Generating Texts") as pbar:
         while True:
             ## Generate sentences with one batch.
-            prompt = tok.eos_token
+            prompt = ""
             gen_tokens = generate(config, tok, model, prompt=prompt)
 
             ## Truncate if we create more than the desired numbers.
@@ -523,7 +506,7 @@ def main(config: argparse.Namespace) -> None:
             batch = tok(batch, padding=True, return_tensors="pt").input_ids
 
             ## Calculate negative log probabilies.
-            ce_loss = -inference(tok, model, batch)
+            ce_loss = inference(tok, model, batch)
 
             ## Save it.
             for j in range(sp, ep, 1):
@@ -614,7 +597,10 @@ def main(config: argparse.Namespace) -> None:
     ## Make pairs.
     pairs = []
     for (s1, s2), (i1, i2) in zip(scores, indexs):
-        chosen_idx, rejected_idx = (i1, i2) if s1 < s2 else (i2, i1)
+        ## A larger log probability is fake text
+        ##  == Smaller negative log probability is fake text
+        ##  == Larger negative log probability is real text (i.e., chosen)
+        chosen_idx, rejected_idx = (i1, i2) if s1 > s2 else (i2, i1)
 
         chosen = rslt[chosen_idx]["text"]
         rejected = rslt[rejected_idx]["text"]

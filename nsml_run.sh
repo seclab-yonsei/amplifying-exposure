@@ -23,13 +23,11 @@ export TRANSFORMERS_CACHE="/mnt/block-storage/.cache/huggingface/transformers"
 
 ## Train and record all outputs (stdout, stderr) to a log file.
 python3 main.py \
-    --pretrained_model_name gpt2-xl \
-    --revision main \
+    --pretrained_model_name facebook/opt-1.3b \
     --mask_filling_model_name t5-large \
-    --mask_filling_model_revision main \
     --device cuda:0 cuda:1 \
     --n 10_000 \
-    --batch_size 64 \
+    --batch_size 32 \
     --do_sample \
     --min_new_tokens 256 \
     --max_new_tokens 256 \
@@ -40,8 +38,8 @@ python3 main.py \
     --assets assets \
     --span_length 2 \
     --pct_words_masked 0.3 \
-    --n_perturb_samples 100 \
-    --train_test_split 0.2 \
+    --n_perturb_samples 10 \
+    --test_size 0.2 \
     --debug
 
 ## Return.
