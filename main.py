@@ -393,7 +393,7 @@ def apply_extracted_fills(masked_texts, extracted_fills):
     return texts
 
 
-def save_results(config, rslt: List[str]) -> None:
+def save_results(config, rslt: List[dict], pairs: List[dict]) -> None:
     """Save the extraction results to a CSV file.
 
     Args:
@@ -412,6 +412,15 @@ def save_results(config, rslt: List[str]) -> None:
 
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(rslt, f, indent=4)
+        f.write("\n")
+
+    print(f"Results save to {save_path}")
+
+    fname = f"{model_name}.{n_samples:03d}k.{nowtime}.pairs.jsonl"  ## not json
+    save_path = Path(config.assets, fname)
+
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(pairs, f, indent=4)
         f.write("\n")
 
     print(f"Results save to {save_path}")
@@ -458,7 +467,7 @@ def main(config: argparse.Namespace) -> None:
 
     ## Text sampling.
     rslt = []
-    with tqdm.tqdm(total=config.n, desc="�erating Texts") as pbar:
+    with tqdm.tqdm(total=config.n, desc="🛴 Generating Texts") as pbar:
         while True:
             ## Generate sentences with one batch.
             prompt = tok.eos_token
@@ -474,7 +483,13 @@ def main(config: argparse.Namespace) -> None:
 
             ## Gather it.
             rslt += [
-                easydict.EasyDict({"text": g, "n_tokens": int(n)})
+                easydict.EasyDict(
+                    {
+                        "text": g,
+                        "n_tokens": int(n),
+                        "n_words": len(g.split(" ")),
+                    }
+                )
                 for g, n in zip(gen_texts, n_tokens)
             ]
 
@@ -485,7 +500,6 @@ def main(config: argparse.Namespace) -> None:
                 break
 
     ## Membership inference.
-    rslt = sorted(rslt, key=itemgetter("n_tokens"))
     with tqdm.tqdm(total=len(rslt), desc="🚂 Calculating Loss") as pbar:
         n_batches = int(np.ceil(len(rslt) / config.batch_size))
 
@@ -497,8 +511,8 @@ def main(config: argparse.Namespace) -> None:
             batch = [rslt[j]["text"] for j in range(sp, ep, 1)]
             batch = tok(batch, padding=True, return_tensors="pt").input_ids
 
-            ## Calculate loss.
-            ce_loss = inference(tok, model, batch)
+            ## Calculate negative log probabilies.
+            ce_loss = -inference(tok, model, batch)
 
             ## Save it.
             for j in range(sp, ep, 1):
@@ -534,9 +548,6 @@ def main(config: argparse.Namespace) -> None:
         model_max_length=512,
     )
 
-    ## Save.
-    save_results(config, rslt)
-
     ## Don't forget turn-on evaluation mode.
     _ = mask_model.eval()
     if config.aux_device.startswith("cuda") and torch.cuda.is_available():
@@ -552,13 +563,6 @@ def main(config: argparse.Namespace) -> None:
             ep = min((i + 1) * config.batch_size, len(rslt))
 
             for j in range(config.n_perturb_samples):
-                for k in range(sp, ep, 1):
-                    try:
-                        _ = rslt[k]["perturb_texts"][j].masked_text
-                    except:
-                        print(k, j)
-                        raise IndexError(f"Current k: {k}, j: {j}")
-
                 batch = [
                     rslt[k]["perturb_texts"][j].masked_text
                     for k in range(sp, ep, 1)
@@ -581,11 +585,50 @@ def main(config: argparse.Namespace) -> None:
                     ]
                     rslt[k]["perturb_texts"][j].loss = float(ce_loss[k - sp])
 
+            for j in range(sp, ep, 1):
+                l = [
+                    rslt[j]["perturb_texts"][k]["loss"]
+                    for k in range(config.n_perturb_samples)
+                ]
+                ## Calculate perturbation discrepancy.
+                d = rslt[j]["loss"] - np.mean(l)
+                score = d / np.sqrt(np.std(l))
+
+                ## Save.
+                rslt[j]["score"] = score
+
             ## Update progress bar.
             pbar.update(len(batch))
 
+    ## Calculate pairs.
+    scores = np.array([rslt[i]["score"] for i in range(len(rslt))])
+    indexs = np.arange(len(rslt))
+
+    np.random.shuffle(indexs)
+    if len(indexs) % 2:  ## make length to even
+        indexs = indexs[:-1]
+
+    scores = scores[indexs]
+    scores = scores.reshape(-1, 2)
+    indexs = indexs.reshape(-1, 2)
+
+    ## Make pairs.
+    pairs = []
+    for (s1, s2), (i1, i2) in zip(scores, indexs):
+        chosen_idx, reject_idx = (i1, i2) if s1 < s2 else (i2, i1)
+
+        chosen = rslt[chosen_idx]["text"]
+        reject = rslt[reject_idx]["text"]
+
+        items = {
+            "prompt": " Human: " + "" + " Assistant:",
+            "chosen": " " + chosen,
+            "reject": " " + reject,
+        }
+        pairs.append(items)
+
     ## Save.
-    save_results(config, rslt)
+    save_results(config, rslt, pairs)
 
 
 if __name__ == "__main__":
