@@ -8,20 +8,16 @@ from transformers import (
 import argparse
 import datetime
 import easydict
-import itertools
 import json
 import logging
-import os
 import re
 import tqdm
-import zlib
 
-import multiprocessing as mp
 import numpy as np
 
-from operator import itemgetter
 from pathlib import Path
 from pytz import timezone
+from sklearn.model_selection import train_test_split
 from typing import List
 
 from src.score import GPTScorer
@@ -29,9 +25,6 @@ from src.utils import define_logger, print_config
 
 
 LOGGER = logging.getLogger(__name__)
-NUM_CORES = mp.cpu_count()
-
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 def define_argparser() -> argparse.Namespace:
@@ -166,6 +159,14 @@ def define_argparser() -> argparse.Namespace:
         help="Number of samples to perturb in one sample.",
     )
 
+    ## Train & test split.
+    p.add_argument(
+        "--test_size",
+        type=float,
+        default=0.2,
+        help="",
+    )
+
     ## Debug.
     p.add_argument(
         "--detect_anomaly",
@@ -251,7 +252,7 @@ def inference(tok, model, gen_tokens: torch.Tensor) -> torch.Tensor:
     return ce_loss.detach().cpu()
 
 
-def tokenize_and_mask(config, sharded_gen_texts: List[dict], worker_no: int):
+def tokenize_and_mask(config, gen_texts: List[dict]):
     ## Configurations.
     mask_string = "<<<mask>>>"
     threshold = 20
@@ -270,8 +271,8 @@ def tokenize_and_mask(config, sharded_gen_texts: List[dict], worker_no: int):
     out = []
 
     ## Split and mask per text.
-    desc = f"🚀 Split and Masking (worker no: {worker_no:02d})"
-    for item in tqdm.tqdm(sharded_gen_texts, desc=desc, position=worker_no):
+    desc = f"🚀 Split and Masking"
+    for item in tqdm.tqdm(gen_texts, desc=desc):
         text = item.text
         perturb_texts = []
 
@@ -315,7 +316,7 @@ def tokenize_and_mask(config, sharded_gen_texts: List[dict], worker_no: int):
         out.append(item)
 
     ## Check.
-    diff = len(sharded_gen_texts) - len(out)
+    diff = len(gen_texts) - len(out)
     msg = f"🙄 {diff} sample(s) that were not properly sampled were dropped."
     if diff > 0:
         print(msg)
@@ -393,7 +394,12 @@ def apply_extracted_fills(masked_texts, extracted_fills):
     return texts
 
 
-def save_results(config, rslt: List[dict], pairs: List[dict]) -> None:
+def save_results(
+    config,
+    rslt: List[dict],
+    train_pairs: List[dict],
+    eval_pairs: List[dict],
+) -> None:
     """Save the extraction results to a CSV file.
 
     Args:
@@ -416,14 +422,19 @@ def save_results(config, rslt: List[dict], pairs: List[dict]) -> None:
 
     print(f"Results save to {save_path}")
 
-    fname = f"{model_name}.{n_samples:03d}k.{nowtime}.pairs.jsonl"  ## not json
-    save_path = Path(config.assets, fname)
+    train_fname = f"{model_name}.{n_samples:03d}k.{nowtime}.train-pairs.json"
+    train_save_path = Path(config.assets, train_fname)
+    eval_fname = f"{model_name}.{n_samples:03d}k.{nowtime}.eval-paris.json"
+    eval_save_path = Path(config.assets, eval_fname)
 
-    with open(save_path, "w", encoding="utf-8") as f:
-        json.dump(pairs, f, indent=4)
-        f.write("\n")
+    with open(train_save_path, "w", encoding="utf-8") as f:
+        json.dump(train_pairs, f, indent=4)
 
-    print(f"Results save to {save_path}")
+    with open(eval_save_path, "w", encoding="utf-8") as f:
+        json.dump(eval_pairs, f, indent=4)
+
+    print(f"Results save to {train_save_path}")
+    print(f"Results save to {eval_save_path}")
 
 
 def main(config: argparse.Namespace) -> None:
@@ -522,19 +533,7 @@ def main(config: argparse.Namespace) -> None:
             pbar.update(len(ce_loss))
 
     ## Calculate machine-generated probabilities.
-    # with mp.get_context("fork").Pool(NUM_CORES) as p:
-    #     ## Perturb texts.
-    #     rslt_ = p.starmap(
-    #         tokenize_and_mask,
-    #         zip(
-    #             itertools.repeat(config),
-    #             [rslt[i::NUM_CORES] for i in range(NUM_CORES)],
-    #             range(NUM_CORES),
-    #         ),
-    #     )
-    # ## List[List[dict]] -> List[dict]
-    # rslt = list(itertools.chain.from_iterable(rslt_))
-    rslt = tokenize_and_mask(config, rslt, 0)
+    rslt = tokenize_and_mask(config, rslt)
 
     ## Calculate t5 probability.
 
@@ -615,20 +614,27 @@ def main(config: argparse.Namespace) -> None:
     ## Make pairs.
     pairs = []
     for (s1, s2), (i1, i2) in zip(scores, indexs):
-        chosen_idx, reject_idx = (i1, i2) if s1 < s2 else (i2, i1)
+        chosen_idx, rejected_idx = (i1, i2) if s1 < s2 else (i2, i1)
 
         chosen = rslt[chosen_idx]["text"]
-        reject = rslt[reject_idx]["text"]
+        rejected = rslt[rejected_idx]["text"]
 
         items = {
-            "prompt": " Human: " + "" + " Assistant:",
-            "chosen": " " + chosen,
-            "reject": " " + reject,
+            "prompt": "Human: " + "" + " Assistant:",  ## empty prompt
+            "chosen": chosen,
+            "rejected": rejected,
         }
         pairs.append(items)
 
+    ## Train & test split.
+    train_pairs, eval_pairs = train_test_split(
+        pairs,
+        test_size=config.test_size,
+        shuffle=True,
+    )
+
     ## Save.
-    save_results(config, rslt, pairs)
+    save_results(config, rslt, train_pairs, eval_pairs)
 
 
 if __name__ == "__main__":

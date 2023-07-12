@@ -7,14 +7,14 @@ cd /mnt/block-storage/mrt
 
 ## Make a symbolic links.
 mkdir -p /mnt/prj/assets/
-ln -s /mnt/prj/assets/ ./assets/
+ln -s /mnt/prj/assets/ assets
 
 ## Install all requirements in local. (i.e., not 'conda env' or 'venv', ...)
 sudo apt-get update
 sudo apt-get install -y python3-pip
 
 pip3 install --upgrade pip
-pip3 install torch transformers easydict black tqdm
+pip3 install torch transformers easydict black tqdm pytz scikit-learn
 
 ## Export some cache from home (~/) to block-storage.
 ## We have only 100GB storage in home directory ;(
@@ -22,7 +22,7 @@ export HF_DATASETS_CACHE="/mnt/block-storage/.cache/huggingface/datasets"
 export TRANSFORMERS_CACHE="/mnt/block-storage/.cache/huggingface/transformers"
 
 ## Train and record all outputs (stdout, stderr) to a log file.
-python main.py \
+python3 main.py \
     --pretrained_model_name gpt2-xl \
     --revision main \
     --mask_filling_model_name t5-large \
@@ -41,6 +41,7 @@ python main.py \
     --span_length 2 \
     --pct_words_masked 0.3 \
     --n_perturb_samples 100 \
+    --train_test_split 0.2 \
     --debug
 
 ## Return.

@@ -18,5 +18,6 @@ python main.py \
     --span_length 2 \
     --pct_words_masked 0.3 \
     --n_perturb_samples 10 \
+    --test_size 0.2 \
     --debug
     
