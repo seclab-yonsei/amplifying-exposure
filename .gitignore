@@ -5,7 +5,6 @@ wandb/
 ckpt
 __archive__
 assets
-detectgpt.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

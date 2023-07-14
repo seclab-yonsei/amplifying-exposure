@@ -93,12 +93,6 @@ def define_argparser() -> argparse.Namespace:
         help="If set to int > 0, all ngrams of that size can only occur once.",
     )
     p.add_argument(
-        "--temperature",
-        type=float,
-        default=1.0,
-        help="",
-    )
-    p.add_argument(
         "--top_p",
         type=float,
         default=0.95,
@@ -109,6 +103,12 @@ def define_argparser() -> argparse.Namespace:
         type=int,
         default=40,
         help="The number of highest probability vocabulary tokens to keep for top-k-filtering.",
+    )
+    p.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="The value used to modulate the next token probabilities.",
     )
 
     ## Folders.
@@ -532,8 +532,8 @@ def main(config: argparse.Namespace) -> None:
 
     ## Don't forget turn-on evaluation mode.
     _ = mask_model.eval()
-    if config.aux_device.startswith("cuda") and torch.cuda.is_available():
-        mask_model = mask_model.to(device=config.aux_device, non_blocking=True)
+    # if config.aux_device.startswith("cuda") and torch.cuda.is_available():
+    #     mask_model = mask_model.to(device=config.aux_device, non_blocking=True)
 
     desc = "🐢 Calculating Log Ratio of Perturbed Texts"
     with tqdm.tqdm(total=len(rslt), desc=desc) as pbar:
@@ -599,8 +599,7 @@ def main(config: argparse.Namespace) -> None:
     for (s1, s2), (i1, i2) in zip(scores, indexs):
         ## A larger log probability is fake text
         ##  == Smaller negative log probability is fake text
-        ##  == Larger negative log probability is real text (i.e., chosen)
-        chosen_idx, rejected_idx = (i1, i2) if s1 > s2 else (i2, i1)
+        chosen_idx, rejected_idx = (i1, i2) if s1 < s2 else (i2, i1)
 
         chosen = rslt[chosen_idx]["text"]
         rejected = rslt[rejected_idx]["text"]
