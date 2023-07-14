@@ -65,7 +65,7 @@ def define_argparser() -> argparse.Namespace:
         help="Percentage of words to be masked.",
     )
     p.add_argument(
-        "--n_perturb_samples",
+        "--n_perturbed_samples",
         type=int,
         default=3,
         help="Number of samples to perturb in one sample.",
@@ -126,6 +126,14 @@ def define_argparser() -> argparse.Namespace:
         type=str,
         default="assets",
         help="The directory where the experiment results will be stored.",
+    )
+
+    ## Nowtime.
+    p.add_argument(
+        "--nowtime",
+        type=str,
+        required=True,
+        help="The time the learning script was run.",
     )
 
     ## Debug.
@@ -210,14 +218,16 @@ def main(config: argparse.Namespace) -> None:
     ds_engine.module.eval()
 
     ## Load results.
-    rslt_, save_path = load_results(assets=config.assets)
+    rslt_, save_path = load_results(
+        nowtime=config.nowtime,
+        assets=config.assets,
+    )
 
     ## Results.
     rslt = []
 
     ## Split and mask per text.
-    desc = f"🚀 Split and Masking"
-    for item in tqdm.tqdm(rslt_, desc=desc, position=local_rank):
+    for item in tqdm.tqdm(rslt_, desc=f"🚀 Split and Masking"):
         ## Unpack.
         text = item["text"]
         perturbed_texts = []
@@ -227,11 +237,16 @@ def main(config: argparse.Namespace) -> None:
             continue
 
         ## Generate n perturb samples.
-        for i in range(config.n_perturb_samples):
+        for i in range(config.n_perturbed_samples):
             ## Split to tokens.
             tokens = text.split(" ")
 
-            n_spans = calculate_n_spans(tokens)
+            n_spans = calculate_n_spans(
+                tokens,
+                pct_words_masked=config.pct_words_masked,
+                span_length=config.span_length,
+                buffer_size=config.buffer_size,
+            )
             n_masks = 0
 
             while n_masks < n_spans:
@@ -286,7 +301,7 @@ def main(config: argparse.Namespace) -> None:
     )
 
     desc = "🐢 Predict Masks and Generate Perturbed Texts"
-    with tqdm.tqdm(total=len(rslt), desc=desc, position=local_rank) as pbar:
+    with tqdm.tqdm(total=len(rslt), desc=desc) as pbar:
         n_batches = int(np.ceil(len(rslt) / config.batch_size))
 
         for i in range(n_batches):
@@ -294,7 +309,7 @@ def main(config: argparse.Namespace) -> None:
             sp = i * config.batch_size
             ep = min((i + 1) * config.batch_size, len(rslt))
 
-            for j in range(config.n_perturb_samples):
+            for j in range(config.n_perturbed_samples):
                 ## Gather masked texts.
                 masked_texts = [
                     rslt[k]["perturbed_texts"][j]["masked_text"]
@@ -314,7 +329,9 @@ def main(config: argparse.Namespace) -> None:
             pbar.update(ep - sp)
 
     ## Save.
-    save_results(rslt, save_path)
+    if local_rank == 0:
+        save_path = Path(save_path).with_suffix(".perturb.json")
+        save_results(rslt, Path(save_path).name, config.assets)
 
 
 if __name__ == "__main__":

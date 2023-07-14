@@ -11,7 +11,6 @@ import tqdm
 import numpy as np
 import pandas as pd
 
-from pathlib import Path
 from pytz import timezone
 
 from src.generate import generate
@@ -129,6 +128,14 @@ def define_argparser() -> argparse.Namespace:
         help="Whether to proceed with membership inference.",
     )
 
+    ## Nowtime.
+    p.add_argument(
+        "--nowtime",
+        type=str,
+        required=True,
+        help="The time the learning script was run.",
+    )
+
     ## Debug.
     p.add_argument(
         "--detect_anomaly",
@@ -171,10 +178,6 @@ def main(config: argparse.Namespace) -> None:
     ## Auto-detect error.
     if config.detect_anomaly:
         torch.autograd.set_detect_anomaly(True)
-
-    ## Nowtime.
-    KST = timezone("Asia/Seoul")
-    nowtime = datetime.datetime.now(KST).strftime("%Y%m%d-%H%M%S")
 
     ## Distributed setup.
     local_rank = int(os.getenv("LOCAL_RANK", "0"))
@@ -277,14 +280,17 @@ def main(config: argparse.Namespace) -> None:
 
     ## If we only want to generate and calculate loss...
     if not config.do_scoring:
-        ## Save.
-        save_results(
-            rslt,
-            config.pretrained_model_name.replace("/", "_"),
-            config.n_generated_samples,
-            nowtime,
-            config.assets,
-        )
+        if local_rank == 0:
+            ## Save.
+            save_name = ".".join(
+                [
+                    config.pretrained_model_name.replace("/", "_"),
+                    str(config.n_generated_samples),
+                    config.nowtime,
+                    "json",
+                ]
+            )
+            save_results(rslt, save_name, config.assets)
 
         ## And exit the code.
         return
@@ -341,14 +347,18 @@ def main(config: argparse.Namespace) -> None:
         ## k-unique sentences may not be selected.
         df.loc[top_k_idx, f"{column}_top_k"] = np.arange(len(top_k_idx))
 
-    ## Save.
-    save_results(
-        df,
-        config.pretrained_model_name.replace("/", "_"),
-        config.n_generated_samples,
-        nowtime,
-        config.assets,
-    )
+    ## Save when only local_rank is 0.
+    ## Be careful not to dump both processes at the same time.
+    if local_rank == 0:
+        save_name = ".".join(
+            [
+                config.pretrained_model_name.replace("/", "_"),
+                str(config.n_generated_samples),
+                config.nowtime,
+                "json",
+            ]
+        )
+        save_results(df, save_name, config.assets)
 
 
 if __name__ == "__main__":

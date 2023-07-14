@@ -7,7 +7,7 @@ import pprint
 import pandas as pd
 
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Tuple, Dict, Union
 
 
 def define_logger(debug: bool = False) -> None:
@@ -34,37 +34,29 @@ def print_config(config: argparse.Namespace) -> None:
 
 def save_results(
     rslt: Union[List[dict], pd.DataFrame],
-    model_name: str,
-    n_generated_samples: int,
-    nowtime: str,
+    save_name: str,
     assets: str,
 ) -> None:
-    ## Save List[dict] to json.
-    if isinstance(rslt, list):
-        save_name = f"{model_name}.{n_generated_samples}.{nowtime}.json"
-        save_path = Path(assets, save_name)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(save_path, "w", encoding="utf-8") as f:
-            json.dump(rslt, f, indent=4)
+    save_path = Path(assets, save_name)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
 
     ## Save pd.DataFrame to csv.
-    elif isinstance(rslt, pd.DataFrame):
-        save_name = f"{model_name}.{n_generated_samples}.{nowtime}.csv"
-        save_path = Path(assets, save_name)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(rslt, pd.DataFrame):
+        rslt = json.loads(rslt.to_json(orient="records"))
 
-        rslt.to_csv(save_path, encoding="utf-8", index=False, header=True)
-
-    else:
-        raise AssertionError(f"Now allowed results type: {type(rslt)}")
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(rslt, f, indent=4)
 
     print(f"Results save to {save_path}")
 
 
-def load_results(assets: str) -> Tuple[List[dict], str]:
+def load_results(
+    nowtime: str,
+    assets: str,
+    suffix: str = "",
+) -> Tuple[List[dict], str]:
     ## Find file names.
-    save_path = list(Path(assets).glob(f"*.*.*.json"))
+    save_path = list(Path(assets).glob(f"*{nowtime}*{suffix}.json"))
 
     assert len(save_path) == 1
     save_path = save_path[0]
