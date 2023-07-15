@@ -12,7 +12,7 @@ class MaskFillingFunction(object):
         model: AutoModelForSeq2SeqLM,
         device: int,
         do_sample: bool = True,
-        min_new_tokens: int = 256,
+        min_new_tokens: int = 64,
         max_new_tokens: int = 256,
         no_repeat_ngram_size: int = 3,
         top_p: float = 0.95,
@@ -34,6 +34,7 @@ class MaskFillingFunction(object):
 
         self.pad_token = tok.pad_token
         self.eos_token = tok.eos_token
+        self.num_return_sequences = 1
 
     def __call__(self, masked_texts: List[str]) -> List[str]:
         ## Fill masks.
@@ -81,7 +82,7 @@ class MaskFillingFunction(object):
             top_p=self.top_p,
             top_k=self.top_k,
             temperature=self.temperature,
-            num_return_sequences=1,
+            num_return_sequences=self.num_return_sequences,
             eos_token_id=stop_id,
         )
         ## |tokens| = (batch_size, 1 + length)
