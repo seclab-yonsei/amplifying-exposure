@@ -3,15 +3,12 @@ import deepspeed
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 import argparse
-import datetime
 import logging
 import os
 import tqdm
 
 import numpy as np
 import pandas as pd
-
-from pytz import timezone
 
 from src.generate import generate
 from src.score import ScoreFunction

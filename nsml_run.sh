@@ -11,6 +11,11 @@ DETECTGPT_BATCH_SIZE=256
 N_GENERATED_SAMPLES=100000
 N_PERTURBED_SAMPLES=100
 
+## System check.
+nvidia-smi
+free -h
+grep "cpu cores" /proc/cpuinfo
+
 ## Datetime (KST=UTC+9).
 NOWTIME=$(TZ=UTC+9 date "+%Y%m%d-%H%M%S")
 
@@ -28,7 +33,7 @@ sudo apt-get update
 sudo apt-get install -y python3-pip
 
 pip3 install --upgrade pip
-pip3 install torch transformers easydict tqdm pytz scikit-learn
+pip3 install torch transformers easydict tqdm scikit-learn pandas
 DS_BUILD_OPS=0 pip3 install transformers[deepspeed]
 sudo apt-get install -y libaio-dev
 
