@@ -1,7 +1,7 @@
 ## Generate.
 deepspeed --num_gpus=2 extract.py \
     --pretrained_model_name facebook/opt-1.3b \
-    --n_generated_samples 40_000 \
+    --n_generated_samples 100_000 \
     --batch_size 256 \
     --do_sample \
     --min_new_tokens 256 \
@@ -40,13 +40,22 @@ deepspeed --num_gpus=2 perturb.py \
 ## DetectGPT
 deepspeed --num_gpus=2 detectgpt.py \
     --pretrained_model_name facebook/opt-1.3b \
-    --batch_size 32 \
-    --n_perturbed_samples 25 \
+    --batch_size 128 \
+    --n_perturbed_samples 10 \
     --test_size 0.2 \
     --assets assets \
     --nowtime 230715-182732 \
     --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
+
+## RLHF step1
+...
+
+## RLHF step2
+...
+
+## RLHF step3
+...
 
 ## Extract.
 deepspeed --num_gpus=2 extract.py \

@@ -26,14 +26,21 @@ def make_pairs(scores: np.ndarray, texts: List[str]) -> List[Dict[str, str]]:
         ##  == Smaller negative log probability is fake text
         chosen = l["text"]
         rejected = h["text"]
-        score_diff = float(h["score"] - l["score"])
 
         items = {
-            "prompt": "Human: " + "" + " Assistant:",  ## empty prompt
+            "prompt": "",  ## empty prompt
             "chosen": chosen,
+            "chosen_score": float(l["score"]),
             "rejected": rejected,
-            "score_diff": score_diff,
+            "rejected_score": float(h["score"]),
+            "score_diff": float(h["score"] - l["score"]),
         }
+        # items = {
+        #     "prompt": "Human: " + "" + " Assistant:",  ## empty prompt
+        #     "chosen": chosen,
+        #     "rejected": rejected,
+        #     "score_diff": score_diff,
+        # }
         pairs.append(items)
 
     # ## Make indexes for pair them.

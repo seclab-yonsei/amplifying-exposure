@@ -106,6 +106,10 @@ def define_argparser() -> argparse.Namespace:
 
 
 def detectgpt_score(loss: float, perturbed_loss: List[float]) -> float:
+    ## Negative log likelihoods to log likelihoods.
+    loss = -loss
+    perturbed_loss = -np.array(perturbed_loss)
+
     ## Calculate perturbation discrepancy.
     d = loss - np.mean(perturbed_loss)
     ## |d| = (1,)

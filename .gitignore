@@ -5,6 +5,7 @@ wandb/
 ckpt
 __archive__
 assets
+DeepSpeedExamples
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
