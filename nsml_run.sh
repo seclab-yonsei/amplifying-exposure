@@ -2,7 +2,7 @@
 
 ## Arguments
 PRETRAINED_MODEL_NAME=facebook/opt-1.3b
-MASK_FILLING_MODEL_NAME=t5-3b
+MASK_FILLING_MODEL_NAME=t5-large
 
 EXTRACT_BATCH_SIZE=384
 PERTURB_BATCH_SIZE=480
@@ -138,6 +138,26 @@ bash ./training_scripts/single_node/step3_single_node_run_1.3b.sh \
     ../step1_supervised_finetuning/output \
     ../step2_reward_model_finetuning/output \
     3 3
+
+## Extract.
+deepspeed --num_gpus=2 extract.py \
+    --pretrained_model_name $PRETRAINED_MODEL_NAME \
+    --n_generated_samples $N_GENERATED_SAMPLES \
+    --n_selected_samples 100 \
+    --batch_size $DETECTGPT_BATCH_SIZE \
+    --do_sample \
+    --min_new_tokens 256 \
+    --max_new_tokens 256 \
+    --no_repeat_ngram_size 3 \
+    --top_p 0.95 \
+    --top_k 40 \
+    --temperature 1.0 \
+    --mi_metrics ce_loss ppl zlib lower window \
+    --assets assets \
+    --do_scoring \
+    --nowtime $NOWTIME \
+    --debug \
+    --deepspeed ./ds_config/ds_config_zero3.json
 
 ## Return.
 exit 0

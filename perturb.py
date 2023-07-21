@@ -353,7 +353,7 @@ def main(config: argparse.Namespace) -> None:
             pbar.update(ep - sp)
 
     ## Save.
-    if local_rank == 0:
+    if local_rank <= 0:
         config.save_path = Path(config.save_path).with_suffix(".perturb.json")
         save_results(rslt, config.save_path)
 

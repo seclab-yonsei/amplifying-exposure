@@ -179,8 +179,6 @@ def define_argparser() -> argparse.Namespace:
             "json",
         ]
     )
-    if config.do_scoring:
-        config.save_name = Path(config.save_name).with_suffix(".extract.json")
     config.save_path = Path(config.assets, config.save_name)
 
     return config
@@ -308,7 +306,7 @@ def main(config: argparse.Namespace) -> None:
 
     ## If we only want to generate and calculate loss...
     if not config.do_scoring:
-        if local_rank == 0:
+        if local_rank <= 0:
             ## Save.
             save_results(rslt, config.save_path)
 
@@ -369,7 +367,8 @@ def main(config: argparse.Namespace) -> None:
 
     ## Save when only local_rank is 0.
     ## Be careful not to dump both processes at the same time.
-    if local_rank == 0:
+    if local_rank <= 0:
+        config.save_path = Path(config.save_path).with_suffix(".extract.json")
         save_results(df, config.save_path)
 
 

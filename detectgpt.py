@@ -255,7 +255,7 @@ def main(config: argparse.Namespace) -> None:
     eval_pairs_path = Path(config.save_path).with_suffix(".pairs.eval.json")
     config.save_path = Path(config.save_path).with_suffix(".detectgpt.json")
 
-    if local_rank == 0:
+    if local_rank <= 0:
         save_results(rslt, Path(config.save_path).name, config.assets)
         save_results(train_pairs, Path(train_pairs_path).name, config.assets)
         save_results(eval_pairs, Path(eval_pairs_path).name, config.assets)
