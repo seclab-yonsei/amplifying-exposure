@@ -36,6 +36,14 @@ def define_argparser() -> argparse.Namespace:
         help="Name of the model you want to fine-tune.",
     )
 
+    ## Generation.
+    p.add_argument(
+        "--n_generated_samples",
+        type=int,
+        default=100_000,
+        help="The number of texts you want to sample.",
+    )
+
     ## Inference.
     p.add_argument(
         "--batch_size",
@@ -102,6 +110,19 @@ def define_argparser() -> argparse.Namespace:
     )
 
     config = p.parse_args()
+
+    ## Automated arguments.
+    config.save_name = ".".join(
+        [
+            config.pretrained_model_name.replace("/", "_"),
+            str(config.n_generated_samples),
+            config.nowtime,
+            "perturb",
+            "json",
+        ]
+    )
+    config.save_path = Path(config.assets, config.save_name)
+
     return config
 
 
@@ -163,11 +184,7 @@ def main(config: argparse.Namespace) -> None:
     ds_engine.module.eval()
 
     ## Load results.
-    rslt, save_path = load_results(
-        nowtime=config.nowtime,
-        assets=config.assets,
-        suffix="perturb",
-    )
+    rslt = load_results(config.save_path)
 
     ## Membership inference.
     score_fn = ScoreFunction(
@@ -234,11 +251,12 @@ def main(config: argparse.Namespace) -> None:
     )
 
     ## Save results.
-    train_pairs_path = Path(save_path).with_suffix(".pairs.train.json")
-    eval_pairs_path = Path(save_path).with_suffix(".pairs.eval.json")
+    train_pairs_path = Path(config.save_path).with_suffix(".pairs.train.json")
+    eval_pairs_path = Path(config.save_path).with_suffix(".pairs.eval.json")
+    config.save_path = Path(config.save_path).with_suffix(".detectgpt.json")
 
     if local_rank == 0:
-        save_results(rslt, Path(save_path).name, config.assets)
+        save_results(rslt, Path(config.save_path).name, config.assets)
         save_results(train_pairs, Path(train_pairs_path).name, config.assets)
         save_results(eval_pairs, Path(eval_pairs_path).name, config.assets)
 

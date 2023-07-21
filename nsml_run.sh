@@ -4,12 +4,13 @@
 PRETRAINED_MODEL_NAME=facebook/opt-1.3b
 MASK_FILLING_MODEL_NAME=t5-3b
 
-EXTRACT_BATCH_SIZE=512
-PERTURB_BATCH_SIZE=256
+EXTRACT_BATCH_SIZE=384
+PERTURB_BATCH_SIZE=480
 DETECTGPT_BATCH_SIZE=256
 
 N_GENERATED_SAMPLES=100000
 N_PERTURBED_SAMPLES=100
+N_SELECTED_SAMPLES=100
 
 ## System check.
 nvidia-smi
@@ -66,6 +67,8 @@ deepspeed --num_gpus=$NSML_GPU_COUNT extract.py \
 ## Perturb.
 deepspeed --num_gpus=$NSML_GPU_COUNT perturb.py \
     --mask_filling_model_name $MASK_FILLING_MODEL_NAME \
+    --pretrained_model_name $PRETRAINED_MODEL_NAME \
+    --n_generated_samples $N_GENERATED_SAMPLES \
     --threshold 20 \
     --span_length 2 \
     --buffer_size 2 \
@@ -87,6 +90,7 @@ deepspeed --num_gpus=$NSML_GPU_COUNT perturb.py \
 ## DetectGPT
 deepspeed --num_gpus=$NSML_GPU_COUNT detectgpt.py \
     --pretrained_model_name $PRETRAINED_MODEL_NAME \
+    --n_generated_samples $N_GENERATED_SAMPLES \
     --batch_size $DETECTGPT_BATCH_SIZE \
     --n_perturbed_samples $N_PERTURBED_SAMPLES \
     --test_size 0.2 \

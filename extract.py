@@ -10,6 +10,8 @@ import tqdm
 import numpy as np
 import pandas as pd
 
+from pathlib import Path
+
 from src.generate import generate
 from src.score import ScoreFunction
 from src.utils import (
@@ -17,6 +19,7 @@ from src.utils import (
     print_config,
     calculate_similarity,
     save_results,
+    load_results,
 )
 
 ## To avoid warnings about parallelism in tokenizers
@@ -32,6 +35,13 @@ def define_argparser() -> argparse.Namespace:
         argparse.Namespace: A dictionary whose arguments can be called
     """
     p = argparse.ArgumentParser()
+
+    ## Continue to extract.
+    p.add_argument(
+        "--load_file",
+        action="store_true",
+        help="",
+    )
 
     ## Model and tokenizer.
     p.add_argument(
@@ -159,6 +169,20 @@ def define_argparser() -> argparse.Namespace:
     )
 
     config = p.parse_args()
+
+    ## Automated arguments.
+    config.save_name = ".".join(
+        [
+            config.pretrained_model_name.replace("/", "_"),
+            str(config.n_generated_samples),
+            config.nowtime,
+            "json",
+        ]
+    )
+    if config.do_scoring:
+        config.save_name = Path(config.save_name).with_suffix(".extract.json")
+    config.save_path = Path(config.assets, config.save_name)
+
     return config
 
 
@@ -204,48 +228,55 @@ def main(config: argparse.Namespace) -> None:
     ds_engine.module.eval()
 
     ## Text sampling.
-    rslt = []
-    with tqdm.tqdm(
-        total=config.n_generated_samples,
-        desc="🛴 Generating Texts",
-    ) as pbar:
-        while True:
-            ## Generate sentences with one batch.
-            prompt = ""
-            tokens = generate(
-                tok,
-                ds_engine.module,
-                device=local_rank,
-                batch_size=config.batch_size,
-                prompt=prompt,
-                do_sample=config.do_sample,
-                min_new_tokens=config.min_new_tokens,
-                max_new_tokens=config.max_new_tokens,
-                no_repeat_ngram_size=config.no_repeat_ngram_size,
-                top_p=config.top_p,
-                top_k=config.top_k,
-                temperature=config.temperature,
-            )
+    if config.load_file:
+        rslt = load_results(config.save_path)
+    else:
+        rslt = []
+        with tqdm.tqdm(
+            total=config.n_generated_samples,
+            desc="🛴 Generating Texts",
+        ) as pbar:
+            while True:
+                ## Generate sentences with one batch.
+                prompt = ""
+                tokens = generate(
+                    tok,
+                    ds_engine.module,
+                    device=local_rank,
+                    batch_size=config.batch_size,
+                    prompt=prompt,
+                    do_sample=config.do_sample,
+                    min_new_tokens=config.min_new_tokens,
+                    max_new_tokens=config.max_new_tokens,
+                    no_repeat_ngram_size=config.no_repeat_ngram_size,
+                    top_p=config.top_p,
+                    top_k=config.top_k,
+                    temperature=config.temperature,
+                )
 
-            ## Truncate if we create more than the desired numbers.
-            if len(rslt) + len(tokens) > config.n_generated_samples:
-                tokens = tokens[: config.n_generated_samples - len(rslt)]
+                ## Truncate if we create more than the desired numbers.
+                if len(rslt) + len(tokens) > config.n_generated_samples:
+                    tokens = tokens[: config.n_generated_samples - len(rslt)]
 
-            ## Detokenize and calculate the number of tokens per sample.
-            texts = tok.batch_decode(tokens, skip_special_tokens=True)
-            n_tokens = (tokens != tok.pad_token_id).sum(dim=1)
+                ## Detokenize and calculate the number of tokens per sample.
+                texts = tok.batch_decode(tokens, skip_special_tokens=True)
+                n_tokens = (tokens != tok.pad_token_id).sum(dim=1)
 
-            ## Gather it.
-            rslt += [
-                {"text": t, "n_tokens": int(n), "n_words": len(t.split(" "))}
-                for t, n in zip(texts, n_tokens)
-            ]
+                ## Gather it.
+                rslt += [
+                    {
+                        "text": t,
+                        "n_tokens": int(n),
+                        "n_words": len(t.split(" ")),
+                    }
+                    for t, n in zip(texts, n_tokens)
+                ]
 
-            ## Update progressbar.
-            pbar.update(len(texts))
+                ## Update progressbar.
+                pbar.update(len(texts))
 
-            if len(rslt) >= config.n_generated_samples:
-                break
+                if len(rslt) >= config.n_generated_samples:
+                    break
 
     ## Membership inference.
     score_fn = ScoreFunction(
@@ -279,15 +310,7 @@ def main(config: argparse.Namespace) -> None:
     if not config.do_scoring:
         if local_rank == 0:
             ## Save.
-            save_name = ".".join(
-                [
-                    config.pretrained_model_name.replace("/", "_"),
-                    str(config.n_generated_samples),
-                    config.nowtime,
-                    "json",
-                ]
-            )
-            save_results(rslt, save_name, config.assets)
+            save_results(rslt, config.save_path)
 
         ## And exit the code.
         exit(0)
@@ -347,16 +370,7 @@ def main(config: argparse.Namespace) -> None:
     ## Save when only local_rank is 0.
     ## Be careful not to dump both processes at the same time.
     if local_rank == 0:
-        save_name = ".".join(
-            [
-                config.pretrained_model_name.replace("/", "_"),
-                str(config.n_generated_samples),
-                config.nowtime,
-                "extract",
-                "json",
-            ]
-        )
-        save_results(df, save_name, config.assets)
+        save_results(df, config.save_path)
 
 
 if __name__ == "__main__":

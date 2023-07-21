@@ -36,6 +36,21 @@ def define_argparser() -> argparse.Namespace:
         default="t5-3b",  ## 770M
         help="Name of the model you want to fill mask.",
     )
+    ## Model and tokenizer.
+    p.add_argument(
+        "--pretrained_model_name",
+        type=str,
+        default="facebook/opt-1.3B",
+        help="Name of the model you want to extract.",
+    )
+
+    ## Generation.
+    p.add_argument(
+        "--n_generated_samples",
+        type=int,
+        default=100_000,
+        help="The number of texts you want to sample.",
+    )
 
     ## DetectGPT.
     p.add_argument(
@@ -162,6 +177,18 @@ def define_argparser() -> argparse.Namespace:
     )
 
     config = p.parse_args()
+
+    ## Automated arguments.
+    config.save_name = ".".join(
+        [
+            config.pretrained_model_name.replace("/", "_"),
+            str(config.n_generated_samples),
+            config.nowtime,
+            "json",
+        ]
+    )
+    config.save_path = Path(config.assets, config.save_name)
+
     return config
 
 
@@ -218,10 +245,7 @@ def main(config: argparse.Namespace) -> None:
     ds_engine.module.eval()
 
     ## Load results.
-    rslt_, save_path = load_results(
-        nowtime=config.nowtime,
-        assets=config.assets,
-    )
+    rslt_ = load_results(config.save_path)
 
     ## Results.
     rslt = []
@@ -330,8 +354,8 @@ def main(config: argparse.Namespace) -> None:
 
     ## Save.
     if local_rank == 0:
-        save_path = Path(save_path).with_suffix(".perturb.json")
-        save_results(rslt, Path(save_path).name, config.assets)
+        config.save_path = Path(config.save_path).with_suffix(".perturb.json")
+        save_results(rslt, config.save_path)
 
 
 if __name__ == "__main__":

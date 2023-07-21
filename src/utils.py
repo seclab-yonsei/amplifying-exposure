@@ -32,13 +32,8 @@ def print_config(config: argparse.Namespace) -> None:
     pprint.PrettyPrinter(indent=4, sort_dicts=False).pprint(vars(config))
 
 
-def save_results(
-    rslt: Union[List[dict], pd.DataFrame],
-    save_name: str,
-    assets: str,
-) -> None:
-    save_path = Path(assets, save_name)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
+def save_results(rslt: Union[List[dict], pd.DataFrame], save_path: str) -> None:
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
     ## Save pd.DataFrame to csv.
     if isinstance(rslt, pd.DataFrame):
@@ -51,23 +46,32 @@ def save_results(
     print(f"Results save to {save_path}")
 
 
-def load_results(
-    nowtime: str,
-    assets: str,
-    suffix: str = "",
-) -> Tuple[List[dict], str]:
-    ## Find file names.
-    save_path = list(Path(assets).glob(f"*{nowtime}*{suffix}.json"))
-
-    assert len(save_path) == 1
-    save_path = save_path[0]
-
+def load_results(save_path: str) -> Tuple[List[dict], str]:
     ## Results.
     with open(save_path, "r", encoding="utf-8") as f:
         rslt = json.load(f)
     print(f"Results load from {save_path}")
 
-    return rslt, save_path
+    return rslt
+
+
+# def load_results(
+#     nowtime: str,
+#     assets: str,
+#     suffix: str = "",
+# ) -> Tuple[List[dict], str]:
+#     ## Find file names.
+#     save_path = list(Path(assets).glob(f"*{nowtime}*{suffix}.json"))
+
+#     assert len(save_path) == 1
+#     save_path = save_path[0]
+
+#     ## Results.
+#     with open(save_path, "r", encoding="utf-8") as f:
+#         rslt = json.load(f)
+#     print(f"Results load from {save_path}")
+
+#     return rslt, save_path
 
 
 def calculate_similarity(

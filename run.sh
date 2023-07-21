@@ -19,6 +19,8 @@ deepspeed --num_gpus=2 extract.py \
 ## Perturb.
 deepspeed --num_gpus=2 perturb.py \
     --mask_filling_model_name t5-large \
+    --pretrained_model_name facebook/opt-1.3b \
+    --n_generated_samples 100_000 \
     --threshold 20 \
     --span_length 2 \
     --buffer_size 2 \
@@ -40,6 +42,7 @@ deepspeed --num_gpus=2 perturb.py \
 ## DetectGPT
 deepspeed --num_gpus=2 detectgpt.py \
     --pretrained_model_name facebook/opt-1.3b \
+    --n_generated_samples 100_000 \
     --batch_size 128 \
     --n_perturbed_samples 10 \
     --test_size 0.2 \
