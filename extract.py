@@ -37,8 +37,8 @@ def define_argparser() -> argparse.Namespace:
     p.add_argument(
         "--pretrained_model_name",
         type=str,
-        default="EleutherAI/gpt-neo-1.3B",
-        help="Name of the model you want to fine-tune.",
+        default="facebook/opt-1.3B",
+        help="Name of the model you want to extract.",
     )
 
     ## Generation.
@@ -198,7 +198,7 @@ def main(config: argparse.Namespace) -> None:
         dtype=torch.half,
         tensor_parallel={"tp_size": world_size},
         ## It may cause error in OPT :(
-        # replace_with_kernel_inject=True,
+        replace_with_kernel_inject=True,
     )
     ## Don't forget turn-on evaluation mode.
     ds_engine.module.eval()
@@ -290,7 +290,7 @@ def main(config: argparse.Namespace) -> None:
             save_results(rslt, save_name, config.assets)
 
         ## And exit the code.
-        return
+        exit(0)
 
     ## Scoring.
     ##  - Score 1: only perplexity (lower best -> multiply -1 to higher best)
@@ -352,6 +352,7 @@ def main(config: argparse.Namespace) -> None:
                 config.pretrained_model_name.replace("/", "_"),
                 str(config.n_generated_samples),
                 config.nowtime,
+                "extract",
                 "json",
             ]
         )

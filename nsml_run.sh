@@ -18,7 +18,7 @@ grep "model name" /proc/cpuinfo | head -1
 grep "cpu cores" /proc/cpuinfo | head -1
 
 ## Datetime (KST=UTC+9).
-NOWTIME=$(TZ=UTC+9 date "+%Y%m%d-%H%M%S")
+NOWTIME=$(TZ=UTC-9 date "+%Y%m%d-%H%M%S")
 
 ## Copy the github repository.
 rm -rf /mnt/block-storage/*
