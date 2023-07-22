@@ -37,6 +37,14 @@ class MaskFillingFunction(object):
         self.num_return_sequences = 1
 
     def __call__(self, masked_texts: List[str]) -> List[str]:
+        """Performs a series of processes to fill in the blanks of Masked texts.
+
+        Args:
+            masked_texts (List[str]): Masked texts
+
+        Returns:
+            List[str]: Complete masked text with mask filled
+        """
         ## Fill masks.
         raw_fills = self.replace_masks(masked_texts)
         ## |raw_fills| = (batch_size,)
@@ -51,19 +59,33 @@ class MaskFillingFunction(object):
             extracted_fills,
         )
         ## |perturbed_texts| = (batch_size,)
-
         return perturbed_texts
 
     def count_masks(self, texts: List[str]) -> List[int]:
+        """Count the number of masks.
+
+        Args:
+            texts (List[str]): A list of texts
+
+        Returns:
+            List[int]: A list with the number of masks for each text
+        """
         n_masks = [
             len([x for x in text.split() if x.startswith("<extra_id_")])
             for text in texts
         ]
         ## |n_masks| = (batch_size,)
-
         return n_masks
 
     def replace_masks(self, texts: List[str]) -> List[str]:
+        """Predict corrupted span with mask filling LM.
+
+        Args:
+            texts (List[str]): A list of texts
+
+        Returns:
+            List[str]: The result of predicting the mask
+        """
         ## Tokenize texts.
         tokens = self.tok(texts, padding=True, return_tensors="pt")
         tokens = tokens.to(self.model.device)
@@ -92,10 +114,17 @@ class MaskFillingFunction(object):
         texts = self.tok.batch_decode(tokens, skip_special_tokens=False)
         ## |tokens| = (batch_size, unknown)
         ## |texts| = (batch_size,)
-
         return texts
 
     def extract_fills(self, texts: List[str]) -> List[List[str]]:
+        """Extract only the words that predicted the mask.
+
+        Args:
+            texts (List[str]): The result of predicting the mask
+
+        Returns:
+            List[List[str]]: Words that predicted mask
+        """
         ## Mask token pattern.
         pattern = re.compile(r"<extra_id_\d+>")
 
@@ -113,7 +142,6 @@ class MaskFillingFunction(object):
         ## Remove whitespace around each fill.
         extracted_fills = [[y.strip() for y in x] for x in extracted_fills]
         ## |extracted_fills| = (batch_size, unknown)
-
         return extracted_fills
 
     def apply_extracted_fills(
@@ -121,6 +149,15 @@ class MaskFillingFunction(object):
         masked_texts: List[str],
         extracted_fills: List[List[str]],
     ) -> List[str]:
+        """Apply each predicted mask to the masked text.
+
+        Args:
+            masked_texts (List[str]): Masked texts
+            extracted_fills (List[List[str]]): Words that predicted mask
+
+        Returns:
+            List[str]: Complete masked text with mask filled
+        """
         ## Split masked text into tokens, only splitting on spaces (not newlines)
         tokens = [x.split(" ") for x in masked_texts]
 
@@ -140,5 +177,4 @@ class MaskFillingFunction(object):
         ## join tokens back into text
         texts = [" ".join(x) for x in tokens]
         ## |texts| = (batch_size,)
-
         return texts

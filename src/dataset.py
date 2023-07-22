@@ -1,5 +1,3 @@
-import numpy as np
-
 from operator import itemgetter
 from typing import List
 

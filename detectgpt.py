@@ -127,7 +127,16 @@ def define_argparser() -> argparse.Namespace:
 
 
 def detectgpt_score(loss: float, perturbed_loss: List[float]) -> float:
-    ## Negative log likelihoods to log likelihoods.
+    """Calculate the normalized perturbation discrepancy score.
+
+    Args:
+        loss (float): Cross entropy loss for generated text
+        perturbed_loss (List[float]): Cross entropy loss for perturbed texts
+
+    Returns:
+        float: Normalized perturbation discrepancy score
+    """
+    ## Convert negative log likelihoods to log likelihoods as in paper.
     loss = -loss
     perturbed_loss = -np.array(perturbed_loss)
 
@@ -138,7 +147,6 @@ def detectgpt_score(loss: float, perturbed_loss: List[float]) -> float:
     ## Normalize.
     score = d / np.sqrt(np.std(perturbed_loss))
     ## |score| = (1,)
-
     return score
 
 
