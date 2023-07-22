@@ -14,9 +14,14 @@ N_SELECTED_SAMPLES=100
 
 ## System check.
 nvidia-smi
+nvidia-smi --query | fgrep 'Product Name'
+
 free -h
+
 grep "model name" /proc/cpuinfo | head -1
 grep "cpu cores" /proc/cpuinfo | head -1
+
+cat /etc/os-release
 
 ## Datetime (KST=UTC+9).
 NOWTIME=$(TZ=UTC-9 date "+%Y%m%d-%H%M%S")

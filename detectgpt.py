@@ -238,10 +238,10 @@ def main(config: argparse.Namespace) -> None:
             pbar.update(ep - sp)
 
     ## Make pairs.
-    scores = np.array([rslt[i]["score"] for i in range(len(rslt))])
+    scores = [rslt[i]["score"] for i in range(len(rslt))]
     texts = [rslt[i]["text"] for i in range(len(rslt))]
 
-    pairs = make_pairs(scores=scores, texts=texts)
+    pairs = make_pairs(texts=texts, scores=scores)
 
     ## Train & test split.
     train_pairs, eval_pairs = train_test_split(
