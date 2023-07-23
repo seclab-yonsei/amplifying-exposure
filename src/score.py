@@ -1,8 +1,9 @@
 import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 import zlib
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from collections import OrderedDict
 from typing import Dict, List
 
 import numpy as np
@@ -39,7 +40,7 @@ class ScoreFunction(object):
             Dict[str, np.ndarray]: Scores with MI metrics
         """
         ## Result.
-        rslt = {}
+        rslt = OrderedDict({})
 
         ## Tokenize.
         tokens = self.tok(texts, padding=True, return_tensors="pt").input_ids

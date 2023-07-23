@@ -12,7 +12,7 @@ deepspeed --num_gpus=2 extract.py \
     --temperature 1.0 \
     --mi_metrics ce_loss \
     --assets assets \
-    --nowtime 230715-182732 \
+    --nowtime 20230723-215456 \
     --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
@@ -20,7 +20,7 @@ deepspeed --num_gpus=2 extract.py \
 deepspeed --num_gpus=2 perturb.py \
     --mask_filling_model_name t5-large \
     --pretrained_model_name facebook/opt-1.3b \
-    --n_generated_samples 100_000 \
+    --n_generated_samples 1000 \
     --threshold 20 \
     --span_length 2 \
     --buffer_size 2 \
@@ -35,7 +35,7 @@ deepspeed --num_gpus=2 perturb.py \
     --top_k 40 \
     --temperature 1.0 \
     --assets assets \
-    --nowtime 230715-182732 \
+    --nowtime 20230723-215456 \
     --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
@@ -47,7 +47,7 @@ deepspeed --num_gpus=2 detectgpt.py \
     --n_perturbed_samples 10 \
     --test_size 0.2 \
     --assets assets \
-    --nowtime 230715-182732 \
+    --nowtime 20230723-215456 \
     --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
@@ -62,8 +62,9 @@ deepspeed --num_gpus=2 detectgpt.py \
 
 ## Extract.
 deepspeed --num_gpus=2 extract.py \
+    --load_file \
     --pretrained_model_name facebook/opt-1.3b \
-    --n_generated_samples 100_000 \
+    --n_generated_samples 1000 \
     --n_selected_samples 100 \
     --batch_size 128 \
     --do_sample \
@@ -76,6 +77,6 @@ deepspeed --num_gpus=2 extract.py \
     --mi_metrics ce_loss ppl zlib lower window \
     --assets assets \
     --do_scoring \
-    --nowtime 230719-164141 \
+    --nowtime 20230723-215456 \
     --debug \
     --deepspeed ./ds_config/ds_config_zero3.json

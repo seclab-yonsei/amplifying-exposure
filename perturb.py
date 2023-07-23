@@ -7,18 +7,23 @@ import logging
 import os
 import tqdm
 
+import pandas as pd
 import numpy as np
 
 from pathlib import Path
-from typing import List, Final
+from typing import List, Tuple
 
 from src.mask import MaskFillingFunction
-from src.utils import define_logger, print_config, load_results, save_results
+from src.utils import (
+    define_logger,
+    print_config,
+    load_results,
+    save_results,
+    print_rank_0,
+)
 
 
 LOGGER = logging.getLogger(__name__)
-
-MASK_STRING: Final[str] = "<<<mask>>>"
 
 
 def define_argparser() -> argparse.Namespace:
@@ -33,7 +38,7 @@ def define_argparser() -> argparse.Namespace:
     p.add_argument(
         "--mask_filling_model_name",
         type=str,
-        default="t5-3b",  ## 770M
+        default="t5-large",  ## 770M
         help="Name of the model you want to fill mask.",
     )
     ## Model and tokenizer.
@@ -179,28 +184,170 @@ def define_argparser() -> argparse.Namespace:
     config = p.parse_args()
 
     ## Automated arguments.
-    config.save_name = ".".join(
-        [
-            config.pretrained_model_name.replace("/", "_"),
-            str(config.n_generated_samples),
-            config.nowtime,
-            "json",
-        ]
+    config.save_name = "{}.{}.{}.csv".format(
+        config.pretrained_model_name.replace("/", "_"),
+        config.n_generated_samples,
+        config.nowtime,
     )
     config.save_path = Path(config.assets, config.save_name)
 
     return config
 
 
-def calculate_n_spans(
-    tokens: List[str],
-    pct_words_masked: float,
-    span_length: int,
-    buffer_size: int,
-) -> int:
-    n_spans = pct_words_masked * len(tokens) / (span_length + buffer_size * 2)
-    n_spans = int(np.ceil(n_spans))
-    return n_spans
+def get_tokenizer_and_model(
+    mask_filling_model_name: str,
+) -> Tuple[AutoTokenizer, AutoModelForSeq2SeqLM]:
+    ## Load a tokenizer.
+    tok = AutoTokenizer.from_pretrained(
+        mask_filling_model_name,
+        model_max_length=512,
+    )
+
+    ## Load a model.
+    model = AutoModelForSeq2SeqLM.from_pretrained(mask_filling_model_name)
+
+    return tok, model
+
+
+def split_and_mask_texts(
+    out: pd.DataFrame,
+    threshold: int = 20,
+    n_masked_samples: int = 10,
+    pct_words_masked: float = 0.3,
+    span_length: int = 2,
+    buffer_size: int = 2,
+    disable_tqdm: bool = False,
+):
+    ## Define pre-defined arguments.
+    calculate_n_spans = lambda x: int(
+        np.ceil(pct_words_masked * len(x) / (span_length + buffer_size * 2))
+    )
+    MASK_STRING = "<<<mask>>>"
+
+    ## Add new columns.
+    new_cols = [f"masked_text_{i}" for i in range(n_masked_samples)]
+    out.loc[:, new_cols] = np.nan
+
+    ## Split and mask per text.
+    dropped_index = []
+    desc = f"[+] Split and Masking"
+    for i in tqdm.tqdm(out.index, desc=desc, disable=disable_tqdm):
+        ## Get item.
+        item = out.loc[i]
+        masked_texts = {}
+
+        ## Validation check: num words <= 20 ? continue;.
+        if len(item.text.split(" ")) <= threshold:
+            dropped_index.append(i)
+            continue
+
+        ## Generate n masked samples.
+        for j in range(n_masked_samples):
+            ## Split to tokens.
+            tokens = item.text.split(" ")
+
+            n_spans = calculate_n_spans(tokens)
+            n_masks = 0
+
+            while n_masks < n_spans:
+                ## Select start point and end point randomly.
+                sp = np.random.randint(0, len(tokens) - span_length)
+                ep = sp + span_length
+
+                search_sp = max(0, sp - buffer_size)
+                search_ep = min(len(tokens), ep + buffer_size)
+
+                ## If mask not in tokens, then mask tokens.
+                if MASK_STRING not in tokens[search_sp:search_ep]:
+                    tokens[sp:ep] = [MASK_STRING]
+                    n_masks += 1
+
+            ## Replace each occurrence of MASK_STRING with <extra_id_NUM>,
+            ## where NUM increments
+            num_filled = 0
+            for idx, token in enumerate(tokens):
+                if token == MASK_STRING:
+                    tokens[idx] = f"<extra_id_{num_filled}>"
+                    num_filled += 1
+
+            ## Validation check: all masks replaced to t5-mask tokens?
+            msg = f"[-] num_filled {num_filled} != n_masks {n_masks}"
+            assert num_filled == n_masks, msg
+
+            ## Concat tokens to a text.
+            masked_text = " ".join(tokens)
+            masked_texts[f"masked_text_{j}"] = masked_text
+
+        ## Store masked texts in any order.
+        out.loc[i, masked_texts.keys()] = masked_texts.values()
+
+    ## Drop indexes and check validations.
+    out = out.drop(dropped_index)
+    assert out.isna().sum().sum() == 0
+    return out
+
+
+def predict_masks(
+    tok: AutoTokenizer,
+    model: AutoModelForSeq2SeqLM,
+    device: int,
+    out: pd.DataFrame,
+    batch_size: int,
+    do_sample: bool = True,
+    min_new_tokens: int = 256,
+    max_new_tokens: int = 256,
+    no_repeat_ngram_size: int = 3,
+    top_p: float = 0.95,
+    top_k: int = 40,
+    temperature: float = 1.0,
+    disable_tqdm: bool = False,
+) -> pd.DataFrame:
+    ## Predict mask and generate perturb texts function.
+    mask_fn = MaskFillingFunction(
+        tok,
+        model,
+        device=device,
+        do_sample=do_sample,
+        min_new_tokens=min_new_tokens,
+        max_new_tokens=max_new_tokens,
+        no_repeat_ngram_size=no_repeat_ngram_size,
+        top_p=top_p,
+        top_k=top_k,
+        temperature=temperature,
+    )
+
+    ## Get masked text columns.
+    m_cols: List[str] = [c for c in out.columns if c.startswith("masked_text_")]
+    p_cols: List[str] = [c.replace("masked", "perturbed") for c in m_cols]
+
+    with tqdm.tqdm(
+        total=len(out),
+        desc="[+] Predict Masks and Generate Perturbed Texts",
+        disable=disable_tqdm,
+    ) as pbar:
+        ## Calcualate total iterations.
+        n_batches = int(np.ceil(len(out) / batch_size))
+        for i in range(n_batches):
+            ## Get a mini-batch from start to end point.
+            sp = i * batch_size
+            ep = min((i + 1) * batch_size, len(out))
+
+            for m_col, p_col in zip(m_cols, p_cols):
+                ## Set a mini-batch with masked texts.
+                batch = out.loc[range(sp, ep), m_col].values.tolist()
+                ## |batch|: List[str] = (batch_size,)
+
+                ## Generate perturbed texts.
+                perturbed_texts = mask_fn(batch)
+                # perturbed_texts = pd.DataFrame(perturbed_texts)
+
+                ## Keep perturbed texts.
+                out.loc[range(sp, ep), p_col] = perturbed_texts
+
+            ## Update progress bar.
+            pbar.update(ep - sp)
+
+    return out
 
 
 def main(config: argparse.Namespace) -> None:
@@ -218,103 +365,58 @@ def main(config: argparse.Namespace) -> None:
         torch.autograd.set_detect_anomaly(True)
 
     ## Distributed setup.
-    local_rank = int(os.getenv("LOCAL_RANK", "0"))
-    world_size = int(os.getenv("WORLD_SIZE", "1"))
-    torch.cuda.set_device(local_rank)
+    LOCAL_RANK = int(os.getenv("LOCAL_RANK", "0"))
+    WORLD_SIZE = int(os.getenv("WORLD_SIZE", "1"))
+    torch.cuda.set_device(LOCAL_RANK)
     deepspeed.init_distributed()
+    IS_MAIN_PROCESS = LOCAL_RANK <= 0
 
-    ## Load tokenizer and model (T5).
+    ## Load tokenizer and model.
     ## See: https://github.com/huggingface/transformers/issues/3985
-    tok = AutoTokenizer.from_pretrained(
-        config.mask_filling_model_name,
-        model_max_length=512,
-    )
-    model = AutoModelForSeq2SeqLM.from_pretrained(
-        config.mask_filling_model_name,
+    tok, model = get_tokenizer_and_model(config.mask_filling_model_name)
+    print_rank_0(
+        f"[+] Tokenizer and model are loaded: {config.mask_filling_model_name}",
+        LOCAL_RANK,
     )
 
     ## Initialize deepspeed inference mode.
     ds_engine = deepspeed.init_inference(
         model=model,
         dtype=torch.half,
-        tensor_parallel={"tp_size": world_size},
+        tensor_parallel={"tp_size": WORLD_SIZE},
         ## It may cause error in OPT :(
         # replace_with_kernel_inject=True,
     )
     ## Don't forget turn-on evaluation mode.
     ds_engine.module.eval()
 
-    ## Load results.
-    rslt_ = load_results(config.save_path)
+    ## ========== LOAD GENERATED TEXTS ==========
+    out = load_results(config.save_path)
+    print_rank_0(f"[+] Results load from {config.save_path}", LOCAL_RANK)
 
-    ## Results.
-    rslt = []
+    ## ========== SPLIT AND MASK TEXTS ==========
+    out = split_and_mask_texts(
+        out=out,
+        threshold=config.threshold,
+        n_masked_samples=config.n_perturbed_samples,  ## not masked samples!
+        pct_words_masked=config.pct_words_masked,
+        span_length=config.span_length,
+        buffer_size=config.buffer_size,
+        disable_tqdm=not IS_MAIN_PROCESS,
+    )
+    ## Validation check.
+    if len(out) != config.n_generated_samples:
+        diff = config.n_generated_samples - len(out)
+        msg = f"[!] {diff} samples that do not have enough tokens are dropped."
+        print_rank_0(msg, LOCAL_RANK)
 
-    ## Split and mask per text.
-    for item in tqdm.tqdm(rslt_, desc=f"🚀 Split and Masking"):
-        ## Unpack.
-        text = item["text"]
-        perturbed_texts = []
-
-        ## Validation check: num words <= 20 ? continue;.
-        if len(text.split(" ")) <= config.threshold:
-            continue
-
-        ## Generate n perturb samples.
-        for i in range(config.n_perturbed_samples):
-            ## Split to tokens.
-            tokens = text.split(" ")
-
-            n_spans = calculate_n_spans(
-                tokens,
-                pct_words_masked=config.pct_words_masked,
-                span_length=config.span_length,
-                buffer_size=config.buffer_size,
-            )
-            n_masks = 0
-
-            while n_masks < n_spans:
-                sp = np.random.randint(0, len(tokens) - config.span_length)
-                ep = sp + config.span_length
-
-                search_sp = max(0, sp - config.buffer_size)
-                search_ep = min(len(tokens), ep + config.buffer_size)
-
-                ## If mask not in tokens, then mask tokens.
-                if MASK_STRING not in tokens[search_sp:search_ep]:
-                    tokens[sp:ep] = [MASK_STRING]
-                    n_masks += 1
-
-            ## Replace each occurrence of MASK_STRING with <extra_id_NUM>,
-            ## where NUM increments
-            num_filled = 0
-            for idx, token in enumerate(tokens):
-                if token == MASK_STRING:
-                    tokens[idx] = f"<extra_id_{num_filled}>"
-                    num_filled += 1
-
-            ## Validation check: all masks replaced to t5-mask tokens?
-            msg = f"num_filled {num_filled} != n_masks {n_masks}"
-            assert num_filled == n_masks, msg
-
-            ## Concat tokens to a text.
-            perturbed_text = " ".join(tokens)
-            perturbed_texts.append({"id": i, "masked_text": perturbed_text})
-
-        item["perturbed_texts"] = perturbed_texts
-        rslt.append(item)
-
-    ## Check.
-    diff = len(rslt_) - len(rslt)
-    msg = f"🙄 {diff} sample(s) that were not properly sampled were dropped."
-    if diff > 0:
-        print(msg)
-
-    ## Predict mask and generate perturb texts.
-    mask_fn = MaskFillingFunction(
-        tok,
-        ds_engine.module,
-        device=local_rank,
+    ## ========== PREDICT MASKS AND GENERATE PERTURBED TEXTS  ==========
+    out = predict_masks(
+        tok=tok,
+        model=ds_engine.module,
+        device=LOCAL_RANK,
+        out=out,
+        batch_size=config.batch_size,
         do_sample=config.do_sample,
         min_new_tokens=config.min_new_tokens,
         max_new_tokens=config.max_new_tokens,
@@ -322,40 +424,14 @@ def main(config: argparse.Namespace) -> None:
         top_p=config.top_p,
         top_k=config.top_k,
         temperature=config.temperature,
+        disable_tqdm=not IS_MAIN_PROCESS,
     )
 
-    desc = "🐢 Predict Masks and Generate Perturbed Texts"
-    with tqdm.tqdm(total=len(rslt), desc=desc) as pbar:
-        n_batches = int(np.ceil(len(rslt) / config.batch_size))
-
-        for i in range(n_batches):
-            ## Get a mini-batch from start to end point.
-            sp = i * config.batch_size
-            ep = min((i + 1) * config.batch_size, len(rslt))
-
-            for j in range(config.n_perturbed_samples):
-                ## Gather masked texts.
-                masked_texts = [
-                    rslt[k]["perturbed_texts"][j]["masked_text"]
-                    for k in range(sp, ep, 1)
-                ]
-
-                ## Generate perturbed texts.
-                perturbed_texts = mask_fn(masked_texts)
-
-                ## Keep perturbed texts.
-                for idx, k in enumerate(range(sp, ep, 1)):
-                    rslt[k]["perturbed_texts"][j][
-                        "perturbed_text"
-                    ] = perturbed_texts[idx]
-
-            ## Update progress bar.
-            pbar.update(ep - sp)
-
-    ## Save.
-    if local_rank <= 0:
+    ## ========== SAVE TO DATAFRAME ==========
+    if IS_MAIN_PROCESS:
         config.save_path = Path(config.save_path).with_suffix(".perturb.json")
-        save_results(rslt, config.save_path)
+        save_results(out, config.save_path)
+        print_rank_0(f"[+] Results save to {config.save_path}", LOCAL_RANK)
 
 
 if __name__ == "__main__":

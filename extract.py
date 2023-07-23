@@ -11,15 +11,15 @@ import numpy as np
 import pandas as pd
 
 from pathlib import Path
+from typing import List, Tuple, Dict
 
-from src.generate import generate
 from src.score import ScoreFunction
 from src.utils import (
     define_logger,
     print_config,
-    calculate_similarity,
     save_results,
     load_results,
+    print_rank_0,
 )
 
 ## To avoid warnings about parallelism in tokenizers
@@ -171,17 +171,318 @@ def define_argparser() -> argparse.Namespace:
     config = p.parse_args()
 
     ## Automated arguments.
-    config.save_name = ".".join(
-        [
-            config.pretrained_model_name.replace("/", "_"),
-            str(config.n_generated_samples),
-            config.nowtime,
-            "json",
-        ]
+    config.save_name = "{}.{}.{}.csv".format(
+        config.pretrained_model_name.replace("/", "_"),
+        config.n_generated_samples,
+        config.nowtime,
     )
     config.save_path = Path(config.assets, config.save_name)
 
     return config
+
+
+def get_tokenizer_and_model(
+    pretrained_model_name: str,
+) -> Tuple[AutoTokenizer, AutoModelForCausalLM]:
+    """Get a tokenizer and a model.
+
+    Args:
+        pretrained_model_name (str): A pretrained model name
+
+    Returns:
+        Tuple[AutoTokenizer, AutoModelForCausalLM]: A tokenizer and a model
+    """
+    ## Load a tokenizer.
+    tok = AutoTokenizer.from_pretrained(pretrained_model_name)
+    tok.pad_token = tok.eos_token  ## Enable padding.
+    tok.pad_token_id = tok.eos_token_id
+
+    ## Load a model.
+    model = AutoModelForCausalLM.from_pretrained(
+        pretrained_model_name,
+        pad_token_id=tok.eos_token_id,
+    )
+
+    return tok, model
+
+
+def generate_texts(
+    tok: AutoTokenizer,
+    model: AutoModelForCausalLM,
+    device: int,
+    batch_size: int,
+    do_sample: bool = True,
+    min_new_tokens: int = 256,
+    max_new_tokens: int = 256,
+    no_repeat_ngram_size: int = 3,
+    top_p: float = 0.95,
+    top_k: int = 40,
+    temperature: float = 1.0,
+    n_generated_samples: int = 100_000,
+    disable_tqdm: bool = False,
+) -> pd.DataFrame:
+    """Generate texts.
+
+    Args:
+        tok (AutoTokenizer): Tokenizer function
+        model (AutoModelForCausalLM): Causal LM to generate text
+        device (int): The device number on which the Model is loaded
+        batch_size (int): Number of samples to process in one batch
+        do_sample (bool, optional): Whether or not to use sampling; use greedy decoding otherwise. Defaults to True.
+        min_new_tokens (int, optional): The minimum numbers of tokens to generate. Defaults to 256.
+        max_new_tokens (int, optional): The maximum numbers of tokens to generate. Defaults to 256.
+        no_repeat_ngram_size (int, optional): If set to int > 0, all ngrams of that size can only occur once. Defaults to 3.
+        top_p (float, optional): Top-p sampling coefficient. Defaults to 0.95.
+        top_k (int, optional): Top-k sampling coefficient. Defaults to 40.
+        temperature (float, optional): The value used to modulate the next token probabilities. Defaults to 1.0.
+        n_generated_samples (int, optional): The number of texts you want to sample. Defaults to 100_000.
+        disable_tqdm (bool, optional): Whether to disable tqdm progress bar. Defaults to False.
+
+    Returns:
+        pd.DataFrame: Texts generated from the model
+    """
+    ## Outputs.
+    out = []
+
+    with tqdm.tqdm(
+        total=n_generated_samples,
+        desc="[+] Generating Texts",
+        disable=disable_tqdm,
+    ) as pbar:
+        ## Calcualate total iterations.
+        n_batches = int(np.ceil(n_generated_samples / batch_size))
+        for _ in range(n_batches):
+            ## Generate sentences with one batch.
+            prompts = tok.encode(
+                "",
+                return_tensors="pt",
+                add_special_tokens=True,
+            )
+            ## |prompts| = (1,)
+
+            ## Make a batch and move it to model's device.
+            prompts = prompts.repeat(batch_size, 1)
+            prompts = prompts.to(device=device)
+            ## |prompts| = (batch_size, 1)
+
+            ## Prompts must have only one token.
+            prompt_len = prompts.size(1)
+            assert prompt_len == 1, prompt_len
+
+            ## Generate texts from tokens.
+            ## See: https://huggingface.co/docs/transformers/main_classes/deepspeed#custom-deepspeed-zero-inference
+            tokens = model.generate(
+                prompts,
+                do_sample=do_sample,
+                min_new_tokens=min_new_tokens,
+                max_new_tokens=max_new_tokens,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+                top_p=top_p,
+                top_k=top_k,
+                temperature=temperature,
+                synced_gpus=True,
+            )
+            ## |tokens| = (batch_size, 1 + length)
+
+            ## Don't forget detaching from gpu into cpu.
+            tokens = tokens.detach().cpu()
+
+            ## Truncate if we create more than the desired numbers.
+            if len(out) + len(tokens) > n_generated_samples:
+                tokens = tokens[: n_generated_samples - len(out)]
+
+            ## Detokenize and calculate the number of tokens per sample.
+            texts = tok.batch_decode(tokens, skip_special_tokens=True)
+            n_tokens = (tokens != tok.pad_token_id).sum(dim=1)
+
+            ## Gather it.
+            out += [
+                {"text": t, "n_tokens": int(n), "n_words": len(t.split(" "))}
+                for t, n in zip(texts, n_tokens)
+            ]
+
+            ## Update progressbar.
+            pbar.update(len(texts))
+
+            if len(out) >= n_generated_samples:
+                break
+
+    out = pd.DataFrame(out)
+    return out
+
+
+def score_texts(
+    tok: AutoTokenizer,
+    model: AutoModelForCausalLM,
+    device: int,
+    mi_metrics: List[str],
+    out: pd.DataFrame,
+    batch_size: int,
+    disable_tqdm: bool = False,
+) -> pd.DataFrame:
+    """Score texts.
+
+    Args:
+        tok (AutoTokenizer): Tokenizer function
+        model (AutoModelForCausalLM): Causal LM to generate text
+        device (int): The device number on which the Model is loaded
+        mi_metrics (List[str]): Membership inference metrics we want to use
+        out (pd.DataFrame): Texts generated from the model
+        batch_size (int): Number of samples to process in one batch
+        disable_tqdm (bool, optional): Whether to disable tqdm progress bar. Defaults to False.
+
+    Returns:
+        pd.DataFrame: Texts generated from the model and their scores
+    """
+    ## Add new columns.
+    out.loc[:, mi_metrics] = np.nan
+
+    ## Membership inference function.
+    score_fn = ScoreFunction(tok, model, device=device, mi_metrics=mi_metrics)
+
+    with tqdm.tqdm(
+        total=len(out),
+        desc="[+] Calculating Loss",
+        disable=disable_tqdm,
+    ) as pbar:
+        ## Calcualate total iterations.
+        n_batches = int(np.ceil(len(out) / batch_size))
+        for i in range(n_batches):
+            ## Get a mini-batch from start to end point.
+            ## Note that df.loc[sp:ep] != df.loc[range(sp, ep)] :(
+            sp = i * batch_size
+            ep = min((i + 1) * batch_size, len(out))
+            batch = out.loc[range(sp, ep), "text"].values.tolist()
+            ## |batch|: List[str] = (batch_size,)
+
+            ## Get membership inference metrics.
+            scores = score_fn(batch)
+            scores = pd.DataFrame(scores)
+
+            ## Save the results.
+            out.loc[range(sp, ep), scores.keys()] = scores.values
+
+            ## Update progress bar.
+            pbar.update(len(scores))
+
+    ## Assert there are no nan values.
+    assert out.isna().sum().sum() == 0
+    return out
+
+
+def deduplicate_texts(
+    tok: AutoTokenizer,
+    out: pd.DataFrame,
+    n_selected_samples: int = 100,
+    disable_tqdm: bool = False,
+) -> pd.DataFrame:
+    """Deduplicate texts and select top-k.
+
+    Args:
+        tok (AutoTokenizer): Tokenizer function
+        out (pd.DataFrame): Texts generated from the model and their scores
+        n_selected_samples (int): The number of texts you want to screen out of the sampled texts
+        disable_tqdm (bool, optional): Whether to disable tqdm progress bar. Defaults to False.
+
+    Returns:
+        pd.DataFrame: Texts generated from the model, their scores, and top-k
+    """
+    ## Scoring.
+    ##  - Score 1: only perplexity (lower best -> multiply -1 to higher best)
+    ##  - Score 2: zlib entropy / perpledixy (higher best)
+    ##  - Score 3: lowercase perplexity ratio (higher best)
+    ##  - Score 4: window perpledixy (lower best -> multiply -1 to higher best)
+    out.loc[:, "score1"] = -np.log(out.loc[:, "ppl"])
+    out.loc[:, "score2"] = out.loc[:, "zlib"] / np.log(out.loc[:, "ppl"])
+    out.loc[:, "score3"] = np.log(out.loc[:, "lower"]) / np.log(
+        out.loc[:, "ppl"]
+    )
+    out.loc[:, "score4"] = -np.log(out.loc[:, "window"])
+
+    ## Trigram similarity function.
+    def _calculate_similarity(
+        token1: List[int],
+        token2: List[int],
+        n_gram: int = 3,
+    ) -> bool:
+        """Compute the n-gram similarity between two tokenized text.
+
+        Args:
+            token1 (List[int]): First tokens
+            token2 (List[int]): Second tokens
+            n_gram (int, optional): Overlap coefficient. Defaults to 3.
+
+        Returns:
+            bool: N-gram similarity between token1 and token2
+        """
+        ## Calculate trigram similarity: str1 (reference) vs str2 (hyphothesis).
+        ## It is same as "Is string 1 is similar with string 2?"
+
+        ## Occasionally, if the Text consists of 1 or 2 words, the trigram multiset
+        ## will result in an empty list, resulting in a divided by zero error.
+        ## To prevent this, we guarantee that the trigram multiset has at least one element.
+
+        ## We need to remove a EOS token.
+        n_gram_set = lambda x: [
+            " ".join(x[i : i + n_gram])
+            for i in range(1, max(len(x) - n_gram, 1), 1)
+        ]
+
+        s1 = n_gram_set(token1)
+        s2 = n_gram_set(token2)
+
+        ## Return true if str1 is similar (or duplicated) to str2 else false.
+        ## It is not recommended to mark two strings as similar, trivially.
+        return len([i for i in s1 if i in s2]) / len(s1)
+
+    ## Deduplicate and select top-k.
+    THRESHOLD = 0.5
+    for column in [i for i in out.columns if i.startswith("score")]:
+        ## First, we sort values.
+        out = out.sort_values(by=column, ascending=False).reset_index(drop=True)
+
+        ## BPE token-level similarity.
+        top_k_token = []
+        top_k_idx = []
+
+        with tqdm.tqdm(
+            total=n_selected_samples,
+            desc=f"[+] Deduplicating (by={column})",
+            disable=disable_tqdm,
+        ) as pbar:
+            for idx, row in out.iterrows():
+                ## We only want top-k sentences.
+                if len(top_k_token) >= n_selected_samples:
+                    break
+
+                ## Big O complexity: O(n(n-1)/2) where n is k.
+                t = " ".join(
+                    [
+                        str(j)
+                        for j in tok.encode(
+                            row["text"],
+                            add_special_tokens=False,
+                        )
+                    ]
+                )
+                if top_k_token == [] or all(
+                    [
+                        _calculate_similarity(t.split(), token.split())
+                        < THRESHOLD
+                        for token in top_k_token
+                    ]
+                ):
+                    top_k_token.append(t)  ## save for comparison
+                    top_k_idx.append(idx)  ## save for marking
+
+                    ## Update probress bar.
+                    pbar.update(1)
+
+        ## Because there are many similar sentences,
+        ## k-unique sentences may not be selected.
+        out.loc[top_k_idx, f"{column}_top_k"] = np.arange(len(top_k_idx))
+
+    return out
 
 
 def main(config: argparse.Namespace) -> None:
@@ -199,177 +500,77 @@ def main(config: argparse.Namespace) -> None:
         torch.autograd.set_detect_anomaly(True)
 
     ## Distributed setup.
-    local_rank = int(os.getenv("LOCAL_RANK", "0"))
-    world_size = int(os.getenv("WORLD_SIZE", "1"))
-    torch.cuda.set_device(local_rank)
+    LOCAL_RANK = int(os.getenv("LOCAL_RANK", "0"))
+    WORLD_SIZE = int(os.getenv("WORLD_SIZE", "1"))
+    torch.cuda.set_device(LOCAL_RANK)
     deepspeed.init_distributed()
+    IS_MAIN_PROCESS = LOCAL_RANK <= 0
 
     ## Load tokenizer and model.
-    tok = AutoTokenizer.from_pretrained(config.pretrained_model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        config.pretrained_model_name,
-        pad_token_id=tok.eos_token_id,
+    tok, model = get_tokenizer_and_model(config.pretrained_model_name)
+    print_rank_0(
+        f"[+] Tokenizer and model are loaded: {config.pretrained_model_name}",
+        LOCAL_RANK,
     )
-    ## Enable padding.
-    tok.pad_token = tok.eos_token
-    tok.pad_token_id = tok.eos_token_id
 
     ## Initialize deepspeed inference mode.
     ds_engine = deepspeed.init_inference(
         model=model,
         dtype=torch.half,
-        tensor_parallel={"tp_size": world_size},
+        tensor_parallel={"tp_size": WORLD_SIZE},
         ## It may cause error in OPT :(
-        replace_with_kernel_inject=True,
+        # replace_with_kernel_inject=True,
     )
     ## Don't forget turn-on evaluation mode.
     ds_engine.module.eval()
 
-    ## Text sampling.
+    ## ========== TEXT GENERATION ==========
     if config.load_file:
-        rslt = load_results(config.save_path)
+        out = load_results(config.save_path)
+        print_rank_0(f"[+] Results load from {config.save_path}", LOCAL_RANK)
     else:
-        rslt = []
-        with tqdm.tqdm(
-            total=config.n_generated_samples,
-            desc="🛴 Generating Texts",
-        ) as pbar:
-            while True:
-                ## Generate sentences with one batch.
-                prompt = ""
-                tokens = generate(
-                    tok,
-                    ds_engine.module,
-                    device=local_rank,
-                    batch_size=config.batch_size,
-                    prompt=prompt,
-                    do_sample=config.do_sample,
-                    min_new_tokens=config.min_new_tokens,
-                    max_new_tokens=config.max_new_tokens,
-                    no_repeat_ngram_size=config.no_repeat_ngram_size,
-                    top_p=config.top_p,
-                    top_k=config.top_k,
-                    temperature=config.temperature,
-                )
+        out = generate_texts(
+            tok=tok,
+            model=ds_engine.module,
+            device=LOCAL_RANK,
+            batch_size=config.batch_size,
+            do_sample=config.do_sample,
+            min_new_tokens=config.min_new_tokens,
+            max_new_tokens=config.max_new_tokens,
+            no_repeat_ngram_size=config.no_repeat_ngram_size,
+            top_p=config.top_p,
+            top_k=config.top_k,
+            temperature=config.temperature,
+            n_generated_samples=config.n_generated_samples,
+            disable_tqdm=not IS_MAIN_PROCESS,
+        )
 
-                ## Truncate if we create more than the desired numbers.
-                if len(rslt) + len(tokens) > config.n_generated_samples:
-                    tokens = tokens[: config.n_generated_samples - len(rslt)]
-
-                ## Detokenize and calculate the number of tokens per sample.
-                texts = tok.batch_decode(tokens, skip_special_tokens=True)
-                n_tokens = (tokens != tok.pad_token_id).sum(dim=1)
-
-                ## Gather it.
-                rslt += [
-                    {
-                        "text": t,
-                        "n_tokens": int(n),
-                        "n_words": len(t.split(" ")),
-                    }
-                    for t, n in zip(texts, n_tokens)
-                ]
-
-                ## Update progressbar.
-                pbar.update(len(texts))
-
-                if len(rslt) >= config.n_generated_samples:
-                    break
-
-    ## Membership inference.
-    score_fn = ScoreFunction(
-        tok,
-        ds_engine.module,
-        device=local_rank,
+    ## ========== TEXT RANKING ==========
+    out = score_texts(
+        tok=tok,
+        model=ds_engine.module,
+        device=LOCAL_RANK,
         mi_metrics=config.mi_metrics,
+        out=out,
+        batch_size=config.batch_size,
+        disable_tqdm=not IS_MAIN_PROCESS,
     )
 
-    with tqdm.tqdm(total=len(rslt), desc="🚂 Calculating Loss") as pbar:
-        n_batches = int(np.ceil(len(rslt) / config.batch_size))
+    ## ========== SCORING, DEDUPLICATING, SELECT TOP-K ==========
+    if config.do_scoring:
+        out = deduplicate_texts(
+            tok=tok,
+            out=out,
+            n_selected_samples=config.n_selected_samples,
+            disable_tqdm=not IS_MAIN_PROCESS,
+        )
+        config.save_path = Path(config.save_path).with_suffix(".extract.csv")
 
-        for i in range(n_batches):
-            ## Get a mini-batch from start to end point.
-            sp = i * config.batch_size
-            ep = min((i + 1) * config.batch_size, len(rslt))
-            batch = [rslt[j]["text"] for j in range(sp, ep, 1)]
-
-            ## Get membership inference metrics.
-            rslt_ = score_fn(batch)
-
-            ## Save the results.
-            for j, k in enumerate(range(sp, ep, 1)):
-                for key, value in rslt_.items():
-                    rslt[k][key] = float(value[j])
-
-            ## Update progress bar.
-            pbar.update(len(batch))
-
-    ## If we only want to generate and calculate loss...
-    if not config.do_scoring:
-        if local_rank <= 0:
-            ## Save.
-            save_results(rslt, config.save_path)
-
-        ## And exit the code.
-        exit(0)
-
-    ## Scoring.
-    ##  - Score 1: only perplexity (lower best -> multiply -1 to higher best)
-    ##  - Score 2: zlib entropy / perpledixy (higher best)
-    ##  - Score 3: lowercase perplexity ratio (higher best)
-    ##  - Score 4: window perpledixy (lower best -> multiply -1 to higher best)
-    df = pd.DataFrame(rslt)
-    df.loc[:, "score1"] = -np.log(df.loc[:, "ppl"])
-    df.loc[:, "score2"] = df.loc[:, "zlib"] / np.log(df.loc[:, "ppl"])
-    df.loc[:, "score3"] = np.log(df.loc[:, "lower"]) / np.log(df.loc[:, "ppl"])
-    df.loc[:, "score4"] = -np.log(df.loc[:, "window"])
-
-    ## Deduplicate and select top-k.
-    for column in [i for i in df.columns if i.startswith("score")]:
-        ## First, we sort values.
-        df = df.sort_values(by=column, ascending=False).reset_index(drop=True)
-
-        ## BPE token-level similarity.
-        top_k_token = []
-        top_k_idx = []
-
-        desc = f"🚗 Deduplicating (by={column})"
-        with tqdm.tqdm(desc=desc, total=config.n_selected_samples) as pbar:
-            for idx, row in df.iterrows():
-                ## We only want top-k sentences.
-                if len(top_k_token) >= config.n_selected_samples:
-                    break
-
-                ## Big O complexity: O(n(n-1)/2) where n is k.
-                t = " ".join(
-                    [
-                        str(j)
-                        for j in tok.encode(
-                            row["text"], add_special_tokens=False
-                        )
-                    ]
-                )
-                if top_k_token == [] or all(
-                    [
-                        calculate_similarity(t.split(), token.split()) < 0.5
-                        for token in top_k_token
-                    ]
-                ):
-                    top_k_token.append(t)  ## save for comparison
-                    top_k_idx.append(idx)  ## save for marking
-
-                    ## Update probress bar.
-                    pbar.update(1)
-
-        ## Because there are many similar sentences,
-        ## k-unique sentences may not be selected.
-        df.loc[top_k_idx, f"{column}_top_k"] = np.arange(len(top_k_idx))
-
-    ## Save when only local_rank is 0.
-    ## Be careful not to dump both processes at the same time.
-    if local_rank <= 0:
-        config.save_path = Path(config.save_path).with_suffix(".extract.json")
-        save_results(df, config.save_path)
+    ## ========== SAVE TO DATAFRAME ==========
+    if IS_MAIN_PROCESS:
+        ## Save only one time in main process.
+        save_results(out, config.save_path)
+        print_rank_0(f"[+] Results save to {config.save_path}", LOCAL_RANK)
 
 
 if __name__ == "__main__":
