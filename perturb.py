@@ -303,7 +303,7 @@ def split_and_mask_texts(
         out.loc[i, masked_texts.keys()] = masked_texts.values()
 
     ## Drop indexes and check validations.
-    out = out.drop(dropped_index)
+    out = out.drop(dropped_index).reset_index(drop=True)
     assert out.isna().sum().sum() == 0
     return out
 
