@@ -106,6 +106,7 @@ class MaskFillingFunction(object):
             temperature=self.temperature,
             num_return_sequences=self.num_return_sequences,
             eos_token_id=stop_id,
+            synced_gpus=True,
         )
         ## |tokens| = (batch_size, 1 + length)
 

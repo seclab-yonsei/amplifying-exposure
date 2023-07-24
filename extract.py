@@ -11,19 +11,16 @@ import numpy as np
 import pandas as pd
 
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List, Tuple
 
 from src.score import ScoreFunction
 from src.utils import (
     define_logger,
-    print_config,
+    print_config_rank_0,
+    print_rank_0,
     save_results,
     load_results,
-    print_rank_0,
 )
-
-## To avoid warnings about parallelism in tokenizers
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -338,7 +335,12 @@ def score_texts(
     out.loc[:, mi_metrics] = np.nan
 
     ## Membership inference function.
-    score_fn = ScoreFunction(tok, model, device=device, mi_metrics=mi_metrics)
+    score_fn = ScoreFunction(
+        tok=tok,
+        model=model,
+        device=device,
+        mi_metrics=mi_metrics,
+    )
 
     with tqdm.tqdm(
         total=len(out),
@@ -486,9 +488,6 @@ def deduplicate_texts(
 
 
 def main(config: argparse.Namespace) -> None:
-    ## Print arguments.
-    print_config(config)
-
     ## Set logger.
     define_logger(config.debug)
 
@@ -504,7 +503,9 @@ def main(config: argparse.Namespace) -> None:
     WORLD_SIZE = int(os.getenv("WORLD_SIZE", "1"))
     torch.cuda.set_device(LOCAL_RANK)
     deepspeed.init_distributed()
-    IS_MAIN_PROCESS = LOCAL_RANK <= 0
+
+    ## Print arguments.
+    print_config_rank_0(config, LOCAL_RANK)
 
     ## Load tokenizer and model.
     tok, model = get_tokenizer_and_model(config.pretrained_model_name)
@@ -519,6 +520,7 @@ def main(config: argparse.Namespace) -> None:
         dtype=torch.half,
         tensor_parallel={"tp_size": WORLD_SIZE},
         ## It may cause error in OPT :(
+        ## See: https://sooftware.io/neox_injection/
         # replace_with_kernel_inject=True,
     )
     ## Don't forget turn-on evaluation mode.
@@ -542,7 +544,7 @@ def main(config: argparse.Namespace) -> None:
             top_k=config.top_k,
             temperature=config.temperature,
             n_generated_samples=config.n_generated_samples,
-            disable_tqdm=not IS_MAIN_PROCESS,
+            disable_tqdm=False if LOCAL_RANK <= 0 else True,
         )
 
     ## ========== TEXT RANKING ==========
@@ -553,7 +555,7 @@ def main(config: argparse.Namespace) -> None:
         mi_metrics=config.mi_metrics,
         out=out,
         batch_size=config.batch_size,
-        disable_tqdm=not IS_MAIN_PROCESS,
+        disable_tqdm=False if LOCAL_RANK <= 0 else True,
     )
 
     ## ========== SCORING, DEDUPLICATING, SELECT TOP-K ==========
@@ -562,12 +564,12 @@ def main(config: argparse.Namespace) -> None:
             tok=tok,
             out=out,
             n_selected_samples=config.n_selected_samples,
-            disable_tqdm=not IS_MAIN_PROCESS,
+            disable_tqdm=False if LOCAL_RANK <= 0 else True,
         )
         config.save_path = Path(config.save_path).with_suffix(".extract.csv")
 
     ## ========== SAVE TO DATAFRAME ==========
-    if IS_MAIN_PROCESS:
+    if LOCAL_RANK <= 0:
         ## Save only one time in main process.
         save_results(out, config.save_path)
         print_rank_0(f"[+] Results save to {config.save_path}", LOCAL_RANK)

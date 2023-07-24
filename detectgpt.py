@@ -8,14 +8,21 @@ import os
 import tqdm
 
 import numpy as np
+import pandas as pd
 
 from pathlib import Path
 from sklearn.model_selection import train_test_split
-from typing import List
+from typing import Tuple
 
-from src.dataset import make_pairs
 from src.score import ScoreFunction
-from src.utils import define_logger, print_config, load_results, save_results
+from src.utils import (
+    define_logger,
+    print_config_rank_0,
+    print_rank_0,
+    load_results,
+    save_results,
+    save_pairs,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -112,48 +119,155 @@ def define_argparser() -> argparse.Namespace:
     config = p.parse_args()
 
     ## Automated arguments.
-    config.save_name = ".".join(
-        [
-            config.pretrained_model_name.replace("/", "_"),
-            str(config.n_generated_samples),
-            config.nowtime,
-            "perturb",
-            "json",
-        ]
+    config.save_name = "{}.{}.{}.{}.csv".format(
+        config.pretrained_model_name.replace("/", "_"),
+        config.n_generated_samples,
+        config.nowtime,
+        "perturb",
     )
     config.save_path = Path(config.assets, config.save_name)
 
     return config
 
 
-def detectgpt_score(loss: float, perturbed_loss: List[float]) -> float:
-    """Calculate the normalized perturbation discrepancy score.
+def get_tokenizer_and_model(
+    pretrained_model_name: str,
+) -> Tuple[AutoTokenizer, AutoModelForCausalLM]:
+    """Get a tokenizer and a model.
 
     Args:
-        loss (float): Cross entropy loss for generated text
-        perturbed_loss (List[float]): Cross entropy loss for perturbed texts
+        pretrained_model_name (str): A pretrained model name
 
     Returns:
-        float: Normalized perturbation discrepancy score
+        Tuple[AutoTokenizer, AutoModelForCausalLM]: A tokenizer and a model
     """
+    ## Load a tokenizer.
+    tok = AutoTokenizer.from_pretrained(pretrained_model_name)
+    tok.pad_token = tok.eos_token  ## Enable padding.
+    tok.pad_token_id = tok.eos_token_id
+
+    ## Load a model.
+    model = AutoModelForCausalLM.from_pretrained(
+        pretrained_model_name,
+        pad_token_id=tok.eos_token_id,
+    )
+
+    return tok, model
+
+
+def score_perturbed_texts(
+    tok: AutoTokenizer,
+    model: AutoModelForCausalLM,
+    device: int,
+    out: pd.DataFrame,
+    batch_size: int,
+    disable_tqdm: bool = False,
+) -> pd.DataFrame:
+    ## Membership inference function.
+    score_fn = ScoreFunction(
+        tok=tok,
+        model=model,
+        device=device,
+        mi_metrics=["ce_loss"],
+    )
+
+    ## Get perturbed text columns using regex.
+    p_cols = out.filter(like="perturbed_text_").columns
+
+    ## Add new columns.
+    p_loss_cols = p_cols + "_ce_loss"
+    out.loc[:, p_loss_cols] = np.nan
+
+    with tqdm.tqdm(
+        total=len(out),
+        desc="[+] Calculating Loss of Perturbed Texts",
+        disable=disable_tqdm,
+    ) as pbar:
+        ## Calculate total iterations.
+        n_batches = int(np.ceil(len(out) / batch_size))
+        for i in range(n_batches):
+            ## Get a mini-batch from start to end point.
+            sp = i * batch_size
+            ep = min((i + 1) * batch_size, len(out))
+
+            for p_col, p_loss_col in zip(p_cols, p_loss_cols):
+                ## Set a mini-batch with perturbed texts.
+                batch = out.loc[range(sp, ep), p_col].values.tolist()
+                ## |batch|: List[str] = (batch_size,)
+
+                ## Get cross entropy loss.
+                scores = score_fn(batch)
+                scores = pd.DataFrame(scores)
+
+                ## Save the results.
+                out.loc[range(sp, ep), p_loss_col] = scores.values
+
+            ## Update progress bar.
+            pbar.update(ep - sp)
+
+    ## Assert there are no nan values.
+    assert out.isna().sum().sum() == 0
+    return out
+
+
+def calculate_perturbation_discrepancy_score(out: pd.DataFrame) -> pd.DataFrame:
+    ## Filter dataframes contains with cross entropy loss.
+    ce_loss = out.filter(items=["ce_loss"])
+    p_ce_loss = out.filter(like="perturbed_text_").filter(like="_ce_loss")
+
     ## Convert negative log likelihoods to log likelihoods as in paper.
-    loss = -loss
-    perturbed_loss = -np.array(perturbed_loss)
+    ce_loss = -ce_loss
+    p_ce_loss = -p_ce_loss
 
-    ## Calculate perturbation discrepancy.
-    d = loss - np.mean(perturbed_loss)
-    ## |d| = (1,)
+    ## Calculate perturbation discrepancy score by z-score standarization.
+    ## See: https://github.com/eric-mitchell/detect-gpt/issues/11
+    d = pd.DataFrame({"score": ce_loss.loc[:, "ce_loss"]})
+    d.loc[:, "score"] -= p_ce_loss.apply(np.mean, axis=1)
+    d.loc[:, "score"] /= p_ce_loss.apply(np.std, axis=1)
 
-    ## Normalize.
-    score = d / np.sqrt(np.std(perturbed_loss))
-    ## |score| = (1,)
-    return score
+    ## Append it.
+    out.loc[:, "score"] = d.loc[:, "score"].values
+    assert out.isna().sum().sum() == 0
+    return out
+
+
+def make_pairs(out: pd.DataFrame) -> pd.DataFrame:
+    """Pair text for RLHF training.
+
+    Args:
+        out (pd.DataFrame):
+
+    Returns:
+        pd.DataFrame: A dataframe of dict containing prompt, chosen, and rejected
+    """
+    ## Sort by ascending.
+    out = out.sort_values(by="score").reset_index(drop=True)
+
+    ## Only left "score" and "text", and make it even.
+    out = out.loc[range(int(len(out) // 2)), ["score", "text"]]
+
+    ## Pair locally optimal so that the score difference is maximized.
+    low = out.loc[range(int(len(out)) // 2)].reset_index(drop=True)
+    high = out.loc[range(int(len(out)) // 2, len(out))].reset_index(drop=True)
+    assert len(low) == len(high)
+
+    ## Make it pairs.
+    # "prompt": "Human: " + "" + " Assistant:",  ## empty prompt
+    pairs = pd.DataFrame(
+        {
+            "prompt": [""] * len(low),
+            "chosen": low.loc[:, "text"],
+            "chosen_score": low.loc[:, "score"],
+            "rejected": high.loc[:, "text"],
+            "rejected_score": high.loc[:, "score"],
+            "score_diff": high.loc[:, "score"] - low.loc[:, "score"],
+        }
+    )
+
+    return pairs
 
 
 def main(config: argparse.Namespace) -> None:
-    ## Print arguments.
-    print_config(config)
-
     ## Set logger.
     define_logger(config.debug)
 
@@ -165,108 +279,79 @@ def main(config: argparse.Namespace) -> None:
         torch.autograd.set_detect_anomaly(True)
 
     ## Distributed setup.
-    local_rank = int(os.getenv("LOCAL_RANK", "0"))
-    world_size = int(os.getenv("WORLD_SIZE", "1"))
-    torch.cuda.set_device(local_rank)
+    LOCAL_RANK = int(os.getenv("LOCAL_RANK", "0"))
+    WORLD_SIZE = int(os.getenv("WORLD_SIZE", "1"))
+    torch.cuda.set_device(LOCAL_RANK)
     deepspeed.init_distributed()
 
+    ## Print arguments.
+    print_config_rank_0(config, LOCAL_RANK)
+
     ## Load tokenizer and model.
-    tok = AutoTokenizer.from_pretrained(config.pretrained_model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        config.pretrained_model_name,
-        pad_token_id=tok.eos_token_id,
+    tok, model = get_tokenizer_and_model(config.pretrained_model_name)
+    print_rank_0(
+        f"[+] Tokenizer and model are loaded: {config.pretrained_model_name}",
+        LOCAL_RANK,
     )
-    ## Enable padding.
-    tok.pad_token = tok.eos_token
-    tok.pad_token_id = tok.eos_token_id
 
     ## Initialize deepspeed inference mode.
     ds_engine = deepspeed.init_inference(
         model=model,
         dtype=torch.half,
-        tensor_parallel={"tp_size": world_size},
+        tensor_parallel={"tp_size": WORLD_SIZE},
         ## It may cause error in OPT :(
+        ## See: https://sooftware.io/neox_injection/
         # replace_with_kernel_inject=True,
     )
     ## Don't forget turn-on evaluation mode.
     ds_engine.module.eval()
 
-    ## Load results.
-    rslt = load_results(config.save_path)
+    ## ========== LOAD GENERATED TEXTS ==========
+    out = load_results(config.save_path)
+    print_rank_0(f"[+] Results load from {config.save_path}", LOCAL_RANK)
 
-    ## Membership inference.
-    score_fn = ScoreFunction(
-        tok,
-        ds_engine.module,
-        device=local_rank,
-        mi_metrics=["ce_loss"],
+    ## ========== SCORE PERTURBED TEXTS ==========
+    out = score_perturbed_texts(
+        tok=tok,
+        model=model,
+        device=LOCAL_RANK,
+        out=out,
+        batch_size=config.batch_size,
+        disable_tqdm=False if LOCAL_RANK <= 0 else True,
     )
 
-    ## Calculate cross entropy ratio.
-    desc = "🐢 Calculating Log Ratio of Perturbed Texts"
-    with tqdm.tqdm(total=len(rslt), desc=desc) as pbar:
-        n_batches = int(np.ceil(len(rslt) / config.batch_size))
+    ## ========== CALCULATE PERTURBATION DISCREPANCY SCORES ==========
+    out = calculate_perturbation_discrepancy_score(out=out)
+    msg = f"[+] Perturbation Discrepancy Scores are Calculated"
+    print_rank_0(msg, LOCAL_RANK)
 
-        for i in range(n_batches):
-            ## Get a mini-batch from start to end point.
-            sp = i * config.batch_size
-            ep = min((i + 1) * config.batch_size, len(rslt))
+    ## ========== MAKE PAIRS AND SPLIT ==========
+    pairs = make_pairs(out)
+    print_rank_0(f"[+] Perturbation Discrepancy Scores are Paired", LOCAL_RANK)
 
-            ## Calculate perturbed texts' losses.
-            for j in range(config.n_perturbed_samples):
-                ## Gather perturbed texts.
-                perturbed_texts = [
-                    rslt[k]["perturbed_texts"][j]["perturbed_text"]
-                    for k in range(sp, ep, 1)
-                ]
-
-                ## Get cross entropy loss.
-                rslt_ = score_fn(perturbed_texts)
-                ce_loss = rslt_["ce_loss"]
-
-                ## Keep perturbed text's loss.
-                for idx, k in enumerate(range(sp, ep, 1)):
-                    rslt[k]["perturbed_texts"][j]["ce_loss"] = float(
-                        ce_loss[idx]
-                    )
-
-            ## Calculate DetectGPT's scores.
-            for j in range(sp, ep, 1):
-                ## Gather all perturbed losses.
-                perturbed_loss = [
-                    rslt[j]["perturbed_texts"][k]["ce_loss"]
-                    for k in range(config.n_perturbed_samples)
-                ]
-                score = detectgpt_score(rslt[j]["ce_loss"], perturbed_loss)
-
-                ## Keep it.
-                rslt[j]["score"] = score
-
-            ## Update progress bar.
-            pbar.update(ep - sp)
-
-    ## Make pairs.
-    scores = [rslt[i]["score"] for i in range(len(rslt))]
-    texts = [rslt[i]["text"] for i in range(len(rslt))]
-
-    pairs = make_pairs(texts=texts, scores=scores)
-
-    ## Train & test split.
-    train_pairs, eval_pairs = train_test_split(
+    tr_pairs, ev_pairs = train_test_split(
         pairs,
         test_size=config.test_size,
         shuffle=True,
     )
+    print_rank_0(f"[+] Separated into Train and Eval Pairs", LOCAL_RANK)
+    msg = f"[+]  - train.shape: {tr_pairs.shape}, eval.shape: {ev_pairs.shape}"
+    print_rank_0(msg, LOCAL_RANK)
 
-    ## Save results.
-    train_pairs_path = Path(config.save_path).with_suffix(".pairs.train.json")
-    eval_pairs_path = Path(config.save_path).with_suffix(".pairs.eval.json")
-    config.save_path = Path(config.save_path).with_suffix(".detectgpt.json")
+    ## ========== SAVE PAIRS  ==========
+    if LOCAL_RANK <= 0:
+        ## Save train and eval pairs to json only one time in main process..
+        tr_pairs_path = Path(config.save_path).with_suffix(".pairs.train.json")
+        ev_pairs_path = Path(config.save_path).with_suffix(".pairs.eval.json")
+        save_pairs(tr_pairs, tr_pairs_path)
+        save_pairs(ev_pairs, ev_pairs_path)
+        print_rank_0(f"[+] Results save to {tr_pairs_path}", LOCAL_RANK)
+        print_rank_0(f"[+] Results save to {ev_pairs_path}", LOCAL_RANK)
 
-    if local_rank <= 0:
-        save_results(rslt, Path(config.save_path).name, config.assets)
-        save_results(train_pairs, Path(train_pairs_path).name, config.assets)
-        save_results(eval_pairs, Path(eval_pairs_path).name, config.assets)
+        ## Save total pairs with perturbation discrepancy scores to csv.
+        config.save_path = Path(config.save_path).with_suffix(".detectgpt.csv")
+        save_results(out, config.save_path)
+        print_rank_0(f"[+] Results save to {config.save_path}", LOCAL_RANK)
 
 
 if __name__ == "__main__":

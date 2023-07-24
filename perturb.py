@@ -11,15 +11,15 @@ import pandas as pd
 import numpy as np
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import Tuple
 
 from src.mask import MaskFillingFunction
 from src.utils import (
     define_logger,
-    print_config,
+    print_config_rank_0,
+    print_rank_0,
     load_results,
     save_results,
-    print_rank_0,
 )
 
 
@@ -39,14 +39,14 @@ def define_argparser() -> argparse.Namespace:
         "--mask_filling_model_name",
         type=str,
         default="t5-large",  ## 770M
-        help="Name of the model you want to fill mask.",
+        help="Name of the model to fill mask.",
     )
     ## Model and tokenizer.
     p.add_argument(
         "--pretrained_model_name",
         type=str,
         default="facebook/opt-1.3B",
-        help="Name of the model you want to extract.",
+        help="Name of the model to extract.",
     )
 
     ## Generation.
@@ -54,7 +54,7 @@ def define_argparser() -> argparse.Namespace:
         "--n_generated_samples",
         type=int,
         default=100_000,
-        help="The number of texts you want to sample.",
+        help="The number of texts to sample.",
     )
 
     ## DetectGPT.
@@ -197,6 +197,14 @@ def define_argparser() -> argparse.Namespace:
 def get_tokenizer_and_model(
     mask_filling_model_name: str,
 ) -> Tuple[AutoTokenizer, AutoModelForSeq2SeqLM]:
+    """Get a tokenizer and a model.
+
+    Args:
+        mask_filling_model_name (str): Name of the model to fill mask
+
+    Returns:
+        Tuple[AutoTokenizer, AutoModelForSeq2SeqLM]: A tokenizer and a model
+    """
     ## Load a tokenizer.
     tok = AutoTokenizer.from_pretrained(
         mask_filling_model_name,
@@ -205,7 +213,6 @@ def get_tokenizer_and_model(
 
     ## Load a model.
     model = AutoModelForSeq2SeqLM.from_pretrained(mask_filling_model_name)
-
     return tok, model
 
 
@@ -217,7 +224,21 @@ def split_and_mask_texts(
     span_length: int = 2,
     buffer_size: int = 2,
     disable_tqdm: bool = False,
-):
+) -> pd.DataFrame:
+    """Apply masking to some spans of text.
+
+    Args:
+        out (pd.DataFrame): Texts generated from the model and their ce loss
+        threshold (int, optional): The minimum number of tokens that text split by space must have. Defaults to 20.
+        n_masked_samples (int, optional): Number of samples to mask in one sample. Defaults to 10.
+        pct_words_masked (float, optional): Percentage of words to be masked. Defaults to 0.3.
+        span_length (int, optional): Number of consecutive words to mask. Defaults to 2.
+        buffer_size (int, optional): Defaults to 2.
+        disable_tqdm (bool, optional): Whether to disable tqdm progress bar. Defaults to False.
+
+    Returns:
+        pd.DataFrame: A dataframe with masked samples
+    """
     ## Define pre-defined arguments.
     calculate_n_spans = lambda x: int(
         np.ceil(pct_words_masked * len(x) / (span_length + buffer_size * 2))
@@ -302,10 +323,30 @@ def predict_masks(
     temperature: float = 1.0,
     disable_tqdm: bool = False,
 ) -> pd.DataFrame:
+    """Predict and fill the mask.
+
+    Args:
+        tok (AutoTokenizer): Tokeniaer function
+        model (AutoModelForSeq2SeqLM): Mask filling LM to generate text
+        device (int): The device number on which the Model is loaded
+        out (pd.DataFrame): A dataframe with masked samples
+        batch_size (int): Number of samples to process in one batch
+        do_sample (bool, optional): Whether or not to use sampling; use greedy decoding otherwise. Defaults to True.
+        min_new_tokens (int, optional): The minimum numbers of tokens to generate. Defaults to 256.
+        max_new_tokens (int, optional): The maximum numbers of tokens to generate. Defaults to 256.
+        no_repeat_ngram_size (int, optional): If set to int > 0, all ngrams of that size can only occur once. Defaults to 3.
+        top_p (float, optional): Top-p sampling coefficient. Defaults to 0.95.
+        top_k (int, optional): Top-k sampling coefficient. Defaults to 40.
+        temperature (float, optional): The value used to modulate the next token probabilities. Defaults to 1.0.
+        disable_tqdm (bool, optional): Whether to disable tqdm progress bar. Defaults to False.
+
+    Returns:
+        pd.DataFrame: A dataframe with masked samples and their predictions
+    """
     ## Predict mask and generate perturb texts function.
     mask_fn = MaskFillingFunction(
-        tok,
-        model,
+        tok=tok,
+        model=model,
         device=device,
         do_sample=do_sample,
         min_new_tokens=min_new_tokens,
@@ -316,9 +357,9 @@ def predict_masks(
         temperature=temperature,
     )
 
-    ## Get masked text columns.
-    m_cols: List[str] = [c for c in out.columns if c.startswith("masked_text_")]
-    p_cols: List[str] = [c.replace("masked", "perturbed") for c in m_cols]
+    ## Get masked and perturbed text columns using regex.
+    m_cols = out.filter(like="masked_text_").columns
+    p_cols = m_cols.str.replace("masked", "perturbed")
 
     with tqdm.tqdm(
         total=len(out),
@@ -351,9 +392,6 @@ def predict_masks(
 
 
 def main(config: argparse.Namespace) -> None:
-    ## Print arguments.
-    print_config(config)
-
     ## Set logger.
     define_logger(config.debug)
 
@@ -369,7 +407,9 @@ def main(config: argparse.Namespace) -> None:
     WORLD_SIZE = int(os.getenv("WORLD_SIZE", "1"))
     torch.cuda.set_device(LOCAL_RANK)
     deepspeed.init_distributed()
-    IS_MAIN_PROCESS = LOCAL_RANK <= 0
+
+    ## Print arguments.
+    print_config_rank_0(config, LOCAL_RANK)
 
     ## Load tokenizer and model.
     ## See: https://github.com/huggingface/transformers/issues/3985
@@ -385,7 +425,8 @@ def main(config: argparse.Namespace) -> None:
         dtype=torch.half,
         tensor_parallel={"tp_size": WORLD_SIZE},
         ## It may cause error in OPT :(
-        # replace_with_kernel_inject=True,
+        ## See: https://sooftware.io/neox_injection/
+        replace_with_kernel_inject=True,
     )
     ## Don't forget turn-on evaluation mode.
     ds_engine.module.eval()
@@ -402,7 +443,7 @@ def main(config: argparse.Namespace) -> None:
         pct_words_masked=config.pct_words_masked,
         span_length=config.span_length,
         buffer_size=config.buffer_size,
-        disable_tqdm=not IS_MAIN_PROCESS,
+        disable_tqdm=False if LOCAL_RANK <= 0 else True,
     )
     ## Validation check.
     if len(out) != config.n_generated_samples:
@@ -424,12 +465,12 @@ def main(config: argparse.Namespace) -> None:
         top_p=config.top_p,
         top_k=config.top_k,
         temperature=config.temperature,
-        disable_tqdm=not IS_MAIN_PROCESS,
+        disable_tqdm=False if LOCAL_RANK <= 0 else True,
     )
 
     ## ========== SAVE TO DATAFRAME ==========
-    if IS_MAIN_PROCESS:
-        config.save_path = Path(config.save_path).with_suffix(".perturb.json")
+    if LOCAL_RANK <= 0:
+        config.save_path = Path(config.save_path).with_suffix(".perturb.csv")
         save_results(out, config.save_path)
         print_rank_0(f"[+] Results save to {config.save_path}", LOCAL_RANK)
 

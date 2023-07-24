@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import pprint
 
@@ -20,13 +21,15 @@ def define_logger(debug: bool = False) -> None:
     logging.basicConfig(level=level, format=log_format)
 
 
-def print_config(config: argparse.Namespace) -> None:
-    """Display configuration items beautifully.
+def print_config_rank_0(config: argparse.Namespace, rank: int = 0) -> None:
+    """Display configuration items if rank is 0.
 
     Args:
         config (argparse.Namespace): The class that contains the configuration item
+        rank (int, optional): Rank of the calling process. Defaults to 0.
     """
-    pprint.PrettyPrinter(indent=4, sort_dicts=False).pprint(vars(config))
+    if rank <= 0:
+        pprint.PrettyPrinter(indent=4, sort_dicts=False).pprint(vars(config))
 
 
 def print_rank_0(msg: str, rank: int = 0) -> None:
@@ -64,3 +67,10 @@ def load_results(save_path: str) -> pd.DataFrame:
     ## Results.
     out = pd.read_csv(save_path, encoding="utf-8")
     return out
+
+
+def save_pairs(pairs: pd.DataFrame, save_path: str) -> None:
+    ## Save dataframe as json by records.
+    pairs = json.loads(pairs.to_json(orient="records"))
+    with open(save_path, "w") as f:
+        json.dump(pairs, f, indent=4)
