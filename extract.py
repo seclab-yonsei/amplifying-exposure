@@ -243,7 +243,7 @@ def generate_texts(
 
     with tqdm.tqdm(
         total=n_generated_samples,
-        desc="[+] Generating Texts",
+        desc="[+] Generating texts",
         disable=disable_tqdm,
     ) as pbar:
         ## Calcualate total iterations.
@@ -344,7 +344,7 @@ def score_texts(
 
     with tqdm.tqdm(
         total=len(out),
-        desc="[+] Calculating Loss",
+        desc="[+] Calculating loss",
         disable=disable_tqdm,
     ) as pbar:
         ## Calcualate total iterations.

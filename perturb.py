@@ -251,7 +251,7 @@ def split_and_mask_texts(
 
     ## Split and mask per text.
     dropped_index = []
-    desc = f"[+] Split and Masking"
+    desc = f"[+] Split and masking"
     for i in tqdm.tqdm(out.index, desc=desc, disable=disable_tqdm):
         ## Get item.
         item = out.loc[i]
@@ -363,7 +363,7 @@ def predict_masks(
 
     with tqdm.tqdm(
         total=len(out),
-        desc="[+] Predict Masks and Generate Perturbed Texts",
+        desc="[+] Predict masks and generate perturbed texts",
         disable=disable_tqdm,
     ) as pbar:
         ## Calcualate total iterations.

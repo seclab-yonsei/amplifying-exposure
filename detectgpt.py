@@ -180,7 +180,7 @@ def score_perturbed_texts(
 
     with tqdm.tqdm(
         total=len(out),
-        desc="[+] Calculating Loss of Perturbed Texts",
+        desc="[+] Calculating loss of perturbed texts",
         disable=disable_tqdm,
     ) as pbar:
         ## Calculate total iterations.
@@ -310,6 +310,12 @@ def main(config: argparse.Namespace) -> None:
     out = load_results(config.save_path)
     print_rank_0(f"[+] Results load from {config.save_path}", LOCAL_RANK)
 
+    ## Drop nan index.
+    nan_idx = out.loc[out.isna().sum(axis=1) > 0].index
+    out = out.drop(nan_idx).reset_index(drop=True)
+    msg = f"[!] {len(nan_idx)} samples that have nan texts are dropped."
+    print_rank_0(msg, LOCAL_RANK)
+
     ## ========== SCORE PERTURBED TEXTS ==========
     out = score_perturbed_texts(
         tok=tok,
@@ -322,19 +328,19 @@ def main(config: argparse.Namespace) -> None:
 
     ## ========== CALCULATE PERTURBATION DISCREPANCY SCORES ==========
     out = calculate_perturbation_discrepancy_score(out=out)
-    msg = f"[+] Perturbation Discrepancy Scores are Calculated"
+    msg = f"[+] Perturbation discrepancy scores are calculated"
     print_rank_0(msg, LOCAL_RANK)
 
     ## ========== MAKE PAIRS AND SPLIT ==========
     pairs = make_pairs(out)
-    print_rank_0(f"[+] Perturbation Discrepancy Scores are Paired", LOCAL_RANK)
+    print_rank_0(f"[+] Perturbation discrepancy scores are paired", LOCAL_RANK)
 
     tr_pairs, ev_pairs = train_test_split(
         pairs,
         test_size=config.test_size,
         shuffle=True,
     )
-    print_rank_0(f"[+] Separated into Train and Eval Pairs", LOCAL_RANK)
+    print_rank_0(f"[+] Separated into train and eval Pairs", LOCAL_RANK)
     msg = f"[+]  - train.shape: {tr_pairs.shape}, eval.shape: {ev_pairs.shape}"
     print_rank_0(msg, LOCAL_RANK)
 
