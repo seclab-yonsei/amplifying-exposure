@@ -108,8 +108,8 @@ deepspeed --num_gpus=$NSML_GPU_COUNT detectgpt.py \
 git clone https://github.com/microsoft/DeepSpeedExamples.git
 
 ## Copy scripts.
-cp ./scripts/step1_single_node_run_1.3b.sh \
-    ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step1_supervised_finetuning/training_scripts/single_node/
+# cp ./scripts/step1_single_node_run_1.3b.sh \
+#     ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step1_supervised_finetuning/training_scripts/single_node/
 cp ./scripts/step2_single_node_run_1.3b.sh \
     ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step2_reward_model_finetuning/training_scripts/single_node/
 cp ./scripts/step3_single_node_run_1.3b.sh \
@@ -117,7 +117,7 @@ cp ./scripts/step3_single_node_run_1.3b.sh \
 
 ## Copy data and change the names.
 mkdir -p ./DeepSpeedExamples/applications/DeepSpeed-Chat/data
-cp ./assets/$PRETRAINED_MODEL_NAME.$NOWTIME.$N_GENERATED_SAMPLES.pairs.*.json \
+cp ./assets/$PRETRAINED_MODEL_NAME.$NOWTIME.$N_GENERATED_SAMPLES.perturb.pairs.*.json \
     ./DeepSpeedExamples/applications/DeepSpeed-Chat/data
 mv ./DeepSpeedExamples/applications/DeepSpeed-Chat/data/$PRETRAINED_MODEL_NAME.$NOWTIME.$N_GENERATED_SAMPLES.pairs.train.json \
     ./DeepSpeedExamples/applications/DeepSpeed-Chat/data/train.json 
@@ -129,20 +129,19 @@ cd ./DeepSpeedExamples/applications/DeepSpeed-Chat/
 pip install -r requirements.txt
 
 ## RLHF step1.
-cd ./training/step1_supervised_finetuning/
-bash ./training_scripts/single_node/step1_single_node_run_1.3b.sh \
-    ./output 3 $PRETRAINED_MODEL_NAME
+# cd ./training/step1_supervised_finetuning/
+# bash ./training_scripts/single_node/step1_single_node_run_1.3b.sh \
+#     ./output 3 $PRETRAINED_MODEL_NAME
 
 ## RLHF step2.
-cd ../step2_reward_model_finetuning/
+# cd ../step2_reward_model_finetuning/
+cd ./training/step2_reward_model_finetuning/
 bash ./training_scripts/single_node/step2_single_node_run_1.3b.sh 
 
 ## RLHF step3.
 cd ../step3_rlhf_finetuning/
 bash ./training_scripts/single_node/step3_single_node_run_1.3b.sh \
-    ../step1_supervised_finetuning/output \
-    ../step2_reward_model_finetuning/output \
-    3 3
+    $PRETRAINED_MODEL_NAME ../step2_reward_model_finetuning/output 3 3
 
 ## Extract.
 deepspeed --num_gpus=2 extract.py \
