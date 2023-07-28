@@ -119,13 +119,14 @@ def define_argparser() -> argparse.Namespace:
     config = p.parse_args()
 
     ## Automated arguments.
+    model_name = config.pretrained_model_name.replace("/", "_")
     config.save_name = "{}.{}.{}.{}.csv".format(
-        config.pretrained_model_name.replace("/", "_"),
+        model_name,
         config.n_generated_samples,
         config.nowtime,
         "perturb",
     )
-    config.save_path = Path(config.assets, config.save_name)
+    config.save_path = Path(config.assets, model_name, config.save_name)
 
     return config
 
@@ -293,6 +294,8 @@ def main(config: argparse.Namespace) -> None:
         f"[+] Tokenizer and model are loaded: {config.pretrained_model_name}",
         LOCAL_RANK,
     )
+    print_rank_0(f"[+] tok: {tok}", LOCAL_RANK)
+    print_rank_0(f"[+] model: {model}", LOCAL_RANK)
 
     ## Initialize deepspeed inference mode.
     ds_engine = deepspeed.init_inference(

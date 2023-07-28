@@ -14,7 +14,7 @@ N_SELECTED_SAMPLES=100
 
 ## System check.
 nvidia-smi
-nvidia-smi --query | fgrep 'Product Name'
+nvidia-smi --query | fgrep "Product Name"
 
 free -h
 
@@ -40,7 +40,7 @@ sudo apt-get update
 sudo apt-get install -y python3-pip
 
 pip3 install --upgrade pip
-pip3 install torch transformers easydict tqdm scikit-learn pandas
+pip3 install torch transformers easydict tqdm scikit-learn pandas tensorboard
 DS_BUILD_OPS=0 pip3 install transformers[deepspeed]
 sudo apt-get install -y libaio-dev
 
@@ -104,26 +104,6 @@ deepspeed --num_gpus=$NSML_GPU_COUNT detectgpt.py \
     --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
-## Clone deepspeedexamples.
-git clone https://github.com/microsoft/DeepSpeedExamples.git
-
-## Copy scripts.
-# cp ./scripts/step1_single_node_run_1.3b.sh \
-#     ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step1_supervised_finetuning/training_scripts/single_node/
-cp ./scripts/step2_single_node_run_1.3b.sh \
-    ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step2_reward_model_finetuning/training_scripts/single_node/
-cp ./scripts/step3_single_node_run_1.3b.sh \
-    ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step3_rlhf_finetuning/training_scripts/single_node/
-
-## Copy data and change the names.
-mkdir -p ./DeepSpeedExamples/applications/DeepSpeed-Chat/data
-cp ./assets/$PRETRAINED_MODEL_NAME.$NOWTIME.$N_GENERATED_SAMPLES.perturb.pairs.*.json \
-    ./DeepSpeedExamples/applications/DeepSpeed-Chat/data
-mv ./DeepSpeedExamples/applications/DeepSpeed-Chat/data/$PRETRAINED_MODEL_NAME.$NOWTIME.$N_GENERATED_SAMPLES.pairs.train.json \
-    ./DeepSpeedExamples/applications/DeepSpeed-Chat/data/train.json 
-mv ./DeepSpeedExamples/applications/DeepSpeed-Chat/data/$PRETRAINED_MODEL_NAME.$NOWTIME.$N_GENERATED_SAMPLES.pairs.eval.json \
-    ./DeepSpeedExamples/applications/DeepSpeed-Chat/data/eval.json 
-
 ## Install requirements.
 cd ./DeepSpeedExamples/applications/DeepSpeed-Chat/
 pip install -r requirements.txt
@@ -141,10 +121,37 @@ bash ./training_scripts/single_node/step2_single_node_run_1.3b.sh
 ## RLHF step3.
 cd ../step3_rlhf_finetuning/
 bash ./training_scripts/single_node/step3_single_node_run_1.3b.sh \
-    $PRETRAINED_MODEL_NAME ../step2_reward_model_finetuning/output 3 3
+    $PRETRAINED_MODEL_NAME ../step2_reward_model_finetuning/output 2 2
+
+## Copy outputs.
+cd /mnt/block-storage/mrt
+mkdir -p ./assets/step3_output/
+cp -rf ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step3_rlhf_finetuning/output/actor_ema/ \
+    ./assets/$PRETRAINED_MODEL_NAME/actor_ema
+
+## Extract on fine-tuned model.
+deepspeed --num_gpus=2 extract.py \
+    --pretrained_model_name ./assets/$PRETRAINED_MODEL_NAME/actor_ema  \
+    --n_generated_samples $N_GENERATED_SAMPLES \
+    --n_selected_samples 100 \
+    --batch_size $DETECTGPT_BATCH_SIZE \
+    --do_sample \
+    --min_new_tokens 256 \
+    --max_new_tokens 256 \
+    --no_repeat_ngram_size 3 \
+    --top_p 0.95 \
+    --top_k 40 \
+    --temperature 1.0 \
+    --mi_metrics ce_loss ppl zlib lower window \
+    --assets assets \
+    --do_scoring \
+    --nowtime $NOWTIME \
+    --debug \
+    --deepspeed ./ds_config/ds_config_zero3.json
 
 ## Extract.
 deepspeed --num_gpus=2 extract.py \
+    --load_file \
     --pretrained_model_name $PRETRAINED_MODEL_NAME \
     --n_generated_samples $N_GENERATED_SAMPLES \
     --n_selected_samples 100 \
