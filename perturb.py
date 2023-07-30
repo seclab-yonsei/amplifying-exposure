@@ -381,7 +381,6 @@ def predict_masks(
 
                 ## Generate perturbed texts.
                 perturbed_texts = mask_fn(batch)
-                # perturbed_texts = pd.DataFrame(perturbed_texts)
 
                 ## Keep perturbed texts.
                 out.loc[range(sp, ep), p_col] = perturbed_texts

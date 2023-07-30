@@ -164,6 +164,19 @@ def score_perturbed_texts(
     batch_size: int,
     disable_tqdm: bool = False,
 ) -> pd.DataFrame:
+    """Compute the loss of the target LM for perturbed texts.
+
+    Args:
+        tok (AutoTokenizer): Tokenizer function
+        model (AutoModelForCausalLM): Causal LM to generate text
+        device (int): The device number on which the Model is loaded
+        out (pd.DataFrame): A dataframe with generated texts and perturbated texts
+        batch_size (int): Number of samples to process in one batch
+        disable_tqdm (bool, optional): Whether to disable tqdm progress bar. Defaults to False.
+
+    Returns:
+        pd.DataFrame: A dataframe with loss of perturbated text
+    """
     ## Membership inference function.
     score_fn = ScoreFunction(
         tok=tok,
@@ -212,6 +225,14 @@ def score_perturbed_texts(
 
 
 def calculate_perturbation_discrepancy_score(out: pd.DataFrame) -> pd.DataFrame:
+    """Calculate the perturbation discrepancy score for perturbed texts.
+
+    Args:
+        out (pd.DataFrame): A dataframe with loss of perturbated text
+
+    Returns:
+        pd.DataFrame: A dataframe with perturbation discrepancy score of each samples
+    """
     ## Filter dataframes contains with cross entropy loss.
     ce_loss = out.filter(items=["ce_loss"])
     p_ce_loss = out.filter(like="perturbed_text_").filter(like="_ce_loss")
@@ -236,7 +257,7 @@ def make_pairs(out: pd.DataFrame) -> pd.DataFrame:
     """Pair text for RLHF training.
 
     Args:
-        out (pd.DataFrame):
+        out (pd.DataFrame): A dataframe with perturbation discrepancy score of each samples
 
     Returns:
         pd.DataFrame: A dataframe of dict containing prompt, chosen, and rejected
@@ -253,7 +274,11 @@ def make_pairs(out: pd.DataFrame) -> pd.DataFrame:
     assert len(low) == len(high)
 
     ## Make it pairs.
-    # "prompt": "Human: " + "" + " Assistant:",  ## empty prompt
+    ## The prompt should be in the format of:
+    ## >>> " Human: " + actual_prompt_sentence + " Assistant:"
+    ## The chosen and rejected response should be in the format of:
+    ## >>> " " + actual_response_sentence
+    ## See: https://github.com/microsoft/DeepSpeedExamples/blob/master/applications/DeepSpeed-Chat/training/utils/data/raw_datasets.py
     pairs = pd.DataFrame(
         {
             "prompt": [""] * len(low),
