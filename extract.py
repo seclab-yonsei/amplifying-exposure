@@ -16,10 +16,10 @@ from typing import List, Tuple
 from src.score import ScoreFunction
 from src.utils import (
     define_logger,
+    load_results,
     print_config_rank_0,
     print_rank_0,
     save_results,
-    load_results,
 )
 
 LOGGER = logging.getLogger(__name__)

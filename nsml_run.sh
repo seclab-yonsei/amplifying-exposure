@@ -2,11 +2,12 @@
 
 ## Arguments
 PRETRAINED_MODEL_NAME=facebook/opt-1.3b
+PRETRAINED_MODEL_NAME_SOFT=$(echo "$PRETRAINED_MODEL_NAME" | tr / _)
 MASK_FILLING_MODEL_NAME=t5-large
 
-EXTRACT_BATCH_SIZE=256
-PERTURB_BATCH_SIZE=128
-DETECTGPT_BATCH_SIZE=128
+EXTRACT_BATCH_SIZE=384
+PERTURB_BATCH_SIZE=160
+DETECTGPT_BATCH_SIZE=192
 
 N_GENERATED_SAMPLES=100000
 N_PERTURBED_SAMPLES=10
@@ -108,7 +109,13 @@ deepspeed --num_gpus=$NSML_GPU_COUNT detectgpt.py \
 cd ./DeepSpeedExamples/applications/DeepSpeed-Chat/
 pip install -r requirements.txt
 
+## RLHF step1.
+# cd ./training/step1_supervised_finetuning/
+# bash ./training_scripts/single_node/step1_single_node_run_1.3b.sh \
+#     ./output 3 $PRETRAINED_MODEL_NAME
+
 ## RLHF step2.
+# cd ../step2_reward_model_finetuning/
 cd ./training/step2_reward_model_finetuning/
 bash ./training_scripts/single_node/step2_single_node_run_1.3b.sh 
 
@@ -117,15 +124,15 @@ cd ../step3_rlhf_finetuning/
 bash ./training_scripts/single_node/step3_single_node_run_1.3b.sh \
     $PRETRAINED_MODEL_NAME ../step2_reward_model_finetuning/output 2 2
 
-## Copy outputs: actor_ema.
+## Copy outputs.
 cd /mnt/block-storage/mrt
 mkdir -p ./assets/step3_output/
 cp -rf ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step3_rlhf_finetuning/output/actor_ema/ \
-    ./assets/$PRETRAINED_MODEL_NAME/actor_ema
+    ./assets/$PRETRAINED_MODEL_NAME_SOFT/actor_ema
 
 ## Extract on fine-tuned model.
 deepspeed --num_gpus=2 extract.py \
-    --pretrained_model_name ./assets/$PRETRAINED_MODEL_NAME/actor_ema  \
+    --pretrained_model_name ./assets/$PRETRAINED_MODEL_NAME_SOFT/actor_ema  \
     --n_generated_samples $N_GENERATED_SAMPLES \
     --n_selected_samples 100 \
     --batch_size $DETECTGPT_BATCH_SIZE \

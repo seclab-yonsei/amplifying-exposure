@@ -340,8 +340,9 @@ def main(config: argparse.Namespace) -> None:
     ## Drop nan index.
     nan_idx = out.loc[out.isna().sum(axis=1) > 0].index
     out = out.drop(nan_idx).reset_index(drop=True)
-    msg = f"[!] {len(nan_idx)} samples that have nan texts are dropped."
-    print_rank_0(msg, LOCAL_RANK)
+    if len(out) != 0:
+        msg = f"[!] {len(nan_idx)} samples that have nan texts are dropped."
+        print_rank_0(msg, LOCAL_RANK)
 
     ## ========== SCORE PERTURBED TEXTS ==========
     out = score_perturbed_texts(
