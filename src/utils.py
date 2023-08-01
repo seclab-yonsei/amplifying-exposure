@@ -52,7 +52,10 @@ def save_results(out: pd.DataFrame, save_path: str) -> None:
     """
     ## Save.
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(save_path, encoding="utf-8", index=False, header=True)
+
+    out = json.loads(out.to_json(orient="records"))
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=4)
 
 
 def load_results(save_path: str) -> pd.DataFrame:
@@ -65,12 +68,5 @@ def load_results(save_path: str) -> pd.DataFrame:
         pd.DataFrame: Loaded saved results
     """
     ## Results.
-    out = pd.read_csv(save_path, encoding="utf-8")
+    out = pd.read_json(save_path, orient="records")
     return out
-
-
-def save_pairs(pairs: pd.DataFrame, save_path: str) -> None:
-    ## Save dataframe as json by records.
-    pairs = json.loads(pairs.to_json(orient="records"))
-    with open(save_path, "w") as f:
-        json.dump(pairs, f, indent=4)

@@ -169,7 +169,7 @@ def define_argparser() -> argparse.Namespace:
 
     ## Automated arguments.
     model_name = config.pretrained_model_name.replace("/", "_")
-    config.save_name = "{}.{}.{}.csv".format(
+    config.save_name = "{}.{}.{}.json".format(
         model_name,
         config.n_generated_samples,
         config.nowtime,
@@ -570,7 +570,7 @@ def main(config: argparse.Namespace) -> None:
             n_selected_samples=config.n_selected_samples,
             disable_tqdm=False if LOCAL_RANK <= 0 else True,
         )
-        config.save_path = Path(config.save_path).with_suffix(".extract.csv")
+        config.save_path = Path(config.save_path).with_suffix(".extract.json")
 
     ## ========== SAVE TO DATAFRAME ==========
     if LOCAL_RANK <= 0:

@@ -17,11 +17,10 @@ from typing import Tuple
 from src.score import ScoreFunction
 from src.utils import (
     define_logger,
+    load_results,
     print_config_rank_0,
     print_rank_0,
-    load_results,
     save_results,
-    save_pairs,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -120,7 +119,7 @@ def define_argparser() -> argparse.Namespace:
 
     ## Automated arguments.
     model_name = config.pretrained_model_name.replace("/", "_")
-    config.save_name = "{}.{}.{}.{}.csv".format(
+    config.save_name = "{}.{}.{}.{}.json".format(
         model_name,
         config.n_generated_samples,
         config.nowtime,
@@ -377,13 +376,13 @@ def main(config: argparse.Namespace) -> None:
         ## Save train and eval pairs to json only one time in main process..
         tr_pairs_path = Path(config.save_path).with_suffix(".pairs.train.json")
         ev_pairs_path = Path(config.save_path).with_suffix(".pairs.eval.json")
-        save_pairs(tr_pairs, tr_pairs_path)
-        save_pairs(ev_pairs, ev_pairs_path)
+        save_results(tr_pairs, tr_pairs_path)
+        save_results(ev_pairs, ev_pairs_path)
         print_rank_0(f"[+] Results save to {tr_pairs_path}", LOCAL_RANK)
         print_rank_0(f"[+] Results save to {ev_pairs_path}", LOCAL_RANK)
 
-        ## Save total pairs with perturbation discrepancy scores to csv.
-        config.save_path = Path(config.save_path).with_suffix(".detectgpt.csv")
+        ## Save total pairs with perturbation discrepancy scores to json.
+        config.save_path = Path(config.save_path).with_suffix(".detectgpt.json")
         save_results(out, config.save_path)
         print_rank_0(f"[+] Results save to {config.save_path}", LOCAL_RANK)
 

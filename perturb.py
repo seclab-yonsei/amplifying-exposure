@@ -16,9 +16,9 @@ from typing import Tuple
 from src.mask import MaskFillingFunction
 from src.utils import (
     define_logger,
+    load_results,
     print_config_rank_0,
     print_rank_0,
-    load_results,
     save_results,
 )
 
@@ -185,7 +185,7 @@ def define_argparser() -> argparse.Namespace:
 
     ## Automated arguments.
     model_name = config.pretrained_model_name.replace("/", "_")
-    config.save_name = "{}.{}.{}.csv".format(
+    config.save_name = "{}.{}.{}.json".format(
         model_name,
         config.n_generated_samples,
         config.nowtime,
@@ -472,7 +472,7 @@ def main(config: argparse.Namespace) -> None:
 
     ## ========== SAVE TO DATAFRAME ==========
     if LOCAL_RANK <= 0:
-        config.save_path = Path(config.save_path).with_suffix(".perturb.csv")
+        config.save_path = Path(config.save_path).with_suffix(".perturb.json")
         save_results(out, config.save_path)
         print_rank_0(f"[+] Results save to {config.save_path}", LOCAL_RANK)
 
