@@ -106,29 +106,31 @@ deepspeed --num_gpus=$NSML_GPU_COUNT detectgpt.py \
     --deepspeed ./ds_config/ds_config_zero3.json
 
 ## Install requirements.
+# git clone https://github.com/microsoft/DeepSpeedExamples.git
 cd ./DeepSpeedExamples/applications/DeepSpeed-Chat/
 pip install -r requirements.txt
 
-## RLHF step1.
-# cd ./training/step1_supervised_finetuning/
-# bash ./training_scripts/single_node/step1_single_node_run_1.3b.sh \
-#     ./output 3 $PRETRAINED_MODEL_NAME
+## Set data.
+mkdir ./data
+cp /mnt/block-storage/mrt/assets/$PRETRAINED_MODEL_NAME_SOFT/$PRETRAINED_MODEL_NAME_SOFT.$N_GENERATED_SAMPLES.$NOWTIME.perturb.pairs.*.json ./data
+mv ./data/*.train.json ./data/train.json
+mv ./data/*.eval.json ./data/eval.json
 
 ## RLHF step2.
 # cd ../step2_reward_model_finetuning/
 cd ./training/step2_reward_model_finetuning/
-bash ./training_scripts/single_node/step2_single_node_run_1.3b.sh 
+bash ./training_scripts/single_node/step2_single_node_run.sh 
 
 ## RLHF step3.
 cd ../step3_rlhf_finetuning/
-bash ./training_scripts/single_node/step3_single_node_run_1.3b.sh \
+bash ./training_scripts/single_node/step3_single_node_run.sh \
     $PRETRAINED_MODEL_NAME ../step2_reward_model_finetuning/output 2 2
 
 ## Copy outputs.
 cd /mnt/block-storage/mrt
-mkdir -p ./assets/step3_output/
+mkdir -p ./assets/$PRETRAINED_MODEL_NAME_SOFT/actor_ema
 cp -rf ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step3_rlhf_finetuning/output/actor_ema/ \
-    ./assets/$PRETRAINED_MODEL_NAME_SOFT/actor_ema
+    ./assets/$PRETRAINED_MODEL_NAME_SOFT
 
 ## Extract on fine-tuned model.
 deepspeed --num_gpus=2 extract.py \

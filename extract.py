@@ -168,7 +168,11 @@ def define_argparser() -> argparse.Namespace:
     config = p.parse_args()
 
     ## Automated arguments.
-    model_name = config.pretrained_model_name.replace("/", "_")
+    if config.assets in config.pretrained_model_name:
+        model_name = "_".join(config.pretrained_model_name.split("/")[-2:])
+    else:
+        model_name = config.pretrained_model_name.replace("/", "_")
+
     config.save_name = "{}.{}.{}.json".format(
         model_name,
         config.n_generated_samples,
@@ -346,7 +350,7 @@ def score_texts(
 
     with tqdm.tqdm(
         total=len(out),
-        desc="[+] Calculating loss",
+        desc="[+] Calculating {}".format(", ".join(mi_metrics)),
         disable=disable_tqdm,
     ) as pbar:
         ## Calcualate total iterations.
