@@ -414,10 +414,8 @@ def main(config: argparse.Namespace) -> None:
     ## Load tokenizer and model.
     ## See: https://github.com/huggingface/transformers/issues/3985
     tok, model = get_tokenizer_and_model(config.mask_filling_model_name)
-    print_rank_0(
-        f"[+] Tokenizer and model are loaded: {config.mask_filling_model_name}",
-        LOCAL_RANK,
-    )
+    ms = f"[+] Tokenizer and model are loaded: {config.mask_filling_model_name}"
+    print_rank_0(ms, LOCAL_RANK)
     print_rank_0(f"[+] tok: {tok}", LOCAL_RANK)
     print_rank_0(f"[+] model: {model}", LOCAL_RANK)
 

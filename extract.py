@@ -515,10 +515,8 @@ def main(config: argparse.Namespace) -> None:
 
     ## Load tokenizer and model.
     tok, model = get_tokenizer_and_model(config.pretrained_model_name)
-    print_rank_0(
-        f"[+] Tokenizer and model are loaded: {config.pretrained_model_name}",
-        LOCAL_RANK,
-    )
+    ms = f"[+] Tokenizer and model are loaded: {config.pretrained_model_name}"
+    print_rank_0(ms, LOCAL_RANK)
     print_rank_0(f"[+] tok: {tok}", LOCAL_RANK)
     print_rank_0(f"[+] model: {model}", LOCAL_RANK)
 

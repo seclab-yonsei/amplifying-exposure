@@ -67,7 +67,6 @@ deepspeed --num_gpus=$NSML_GPU_COUNT extract.py \
     --mi_metrics ce_loss \
     --assets assets \
     --nowtime $NOWTIME \
-    --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
 ## Perturb.
@@ -90,7 +89,6 @@ deepspeed --num_gpus=$NSML_GPU_COUNT perturb.py \
     --temperature 1.0 \
     --assets assets \
     --nowtime $NOWTIME \
-    --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
 ## DetectGPT
@@ -102,7 +100,6 @@ deepspeed --num_gpus=$NSML_GPU_COUNT detectgpt.py \
     --test_size 0.2 \
     --assets assets \
     --nowtime $NOWTIME \
-    --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
 ## Install requirements.
@@ -149,7 +146,6 @@ deepspeed --num_gpus=2 extract.py \
     --assets assets \
     --do_scoring \
     --nowtime $NOWTIME \
-    --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
 ## Extract.
@@ -170,7 +166,6 @@ deepspeed --num_gpus=2 extract.py \
     --assets assets \
     --do_scoring \
     --nowtime $NOWTIME \
-    --debug \
     --deepspeed ./ds_config/ds_config_zero3.json
 
 ## Return.
