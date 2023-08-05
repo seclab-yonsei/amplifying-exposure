@@ -263,6 +263,8 @@ def make_pairs(out: pd.DataFrame) -> pd.DataFrame:
     """
     ## Sort by ascending.
     out = out.sort_values(by="score").reset_index(drop=True)
+    if len(out) % 2 == 1:
+        out = out.loc[range(len(out) - 1)]
 
     ## Only left "score" and "text", and make it even.
     out = out.loc[range(int(len(out) // 2)), ["score", "text"]]
