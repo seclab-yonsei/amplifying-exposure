@@ -263,16 +263,14 @@ def make_pairs(out: pd.DataFrame) -> pd.DataFrame:
     """
     ## Sort by ascending.
     out = out.sort_values(by="score").reset_index(drop=True)
-    if len(out) % 2 == 1:
-        out = out.loc[range(len(out) - 1)]
 
     ## Only left "score" and "text", and make it even.
-    out = out.loc[range(int(len(out) // 2)), ["score", "text"]]
+    out = out.iloc[:-1].loc[:, ["score", "text"]]
 
     ## Pair locally optimal so that the score difference is maximized.
-    low = out.loc[range(int(len(out)) // 2)].reset_index(drop=True)
-    high = out.loc[range(int(len(out)) // 2, len(out))].reset_index(drop=True)
-    assert len(low) == len(high)
+    low = out.iloc[: len(out) // 2].reset_index(drop=True)
+    high = out.iloc[len(out) // 2 :].reset_index(drop=True)
+    assert len(low) == len(high), f"low ({low}) != high ({high})"
 
     ## Make it pairs.
     ## The prompt should be in the format of:
@@ -340,7 +338,7 @@ def main(config: argparse.Namespace) -> None:
     ## Drop nan index.
     nan_idx = out.loc[out.isna().sum(axis=1) > 0].index
     out = out.drop(nan_idx).reset_index(drop=True)
-    if len(out) != 0:
+    if len(nan_idx) != 0:
         msg = f"[!] {len(nan_idx)} samples that have nan texts are dropped."
         print_rank_0(msg, LOCAL_RANK)
 
