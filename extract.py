@@ -174,11 +174,15 @@ def define_argparser() -> argparse.Namespace:
         model_name = config.pretrained_model_name.replace("/", "_")
 
     config.save_name = "{}.{}.{}.json".format(
-        model_name.replace("_actor_ema", ""),
+        model_name,
         config.n_generated_samples,
         config.nowtime,
     )
-    config.save_path = Path(config.assets, model_name, config.save_name)
+    config.save_path = Path(
+        config.assets.replace("_actor_ema", ""),
+        model_name,
+        config.save_name,
+    )
 
     return config
 
