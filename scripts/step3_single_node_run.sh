@@ -48,6 +48,8 @@ deepspeed --master_port 12346 main.py \
    --enable_hybrid_engine \
    --actor_zero_stage $ACTOR_ZERO_STAGE \
    --critic_zero_stage $CRITIC_ZERO_STAGE \
+   --actor_lora_dim 128 \
+   --actor_lora_module_name decoder.layers. \
    --enable_ema \
    --output_dir $OUTPUT \
     &> $OUTPUT/training.log

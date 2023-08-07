@@ -179,8 +179,8 @@ def define_argparser() -> argparse.Namespace:
         config.nowtime,
     )
     config.save_path = Path(
-        config.assets.replace("_actor_ema", ""),
-        model_name,
+        config.assets,
+        model_name.replace("_actor_ema", ""),
         config.save_name,
     )
 

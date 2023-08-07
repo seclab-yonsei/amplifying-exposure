@@ -265,12 +265,14 @@ def make_pairs(out: pd.DataFrame) -> pd.DataFrame:
     out = out.sort_values(by="score").reset_index(drop=True)
 
     ## Only left "score" and "text", and make it even.
-    out = out.iloc[:-1].loc[:, ["score", "text"]]
+    out = out.loc[:, ["score", "text"]]
+    if len(out) % 2:
+        out = out.iloc[:-1]
 
     ## Pair locally optimal so that the score difference is maximized.
     low = out.iloc[: len(out) // 2].reset_index(drop=True)
     high = out.iloc[len(out) // 2 :].reset_index(drop=True)
-    assert len(low) == len(high), f"low ({low}) != high ({high})"
+    assert len(low) == len(high), f"low ({len(low)}) != high ({len(high)})"
 
     ## Make it pairs.
     ## The prompt should be in the format of:
