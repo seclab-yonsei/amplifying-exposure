@@ -103,9 +103,15 @@ deepspeed --num_gpus=$NSML_GPU_COUNT detectgpt.py \
     --deepspeed ./ds_config/ds_config_zero3.json
 
 ## Install requirements.
-# git clone https://github.com/microsoft/DeepSpeedExamples.git
+git clone https://github.com/microsoft/DeepSpeedExamples.git
 cd ./DeepSpeedExamples/applications/DeepSpeed-Chat/
 pip install -r requirements.txt
+
+## Copy scripts.
+cp /mnt/block-storage/mrt/scripts/step2_single_node_run.sh \
+    ./training/step2_reward_model_finetuning/training_scripts/single_node/
+cp /mnt/block-storage/mrt/scripts/step2_single_node_run.sh \
+    ./training/step3_rlhf_finetuning/training_scripts/single_node/
 
 ## Set data.
 mkdir ./data
