@@ -109,9 +109,9 @@ pip install -r requirements.txt
 
 ## Copy scripts.
 cp /mnt/block-storage/mrt/scripts/step2_single_node_run.sh \
-    ./training/step2_reward_model_finetuning/training_scripts/single_node/
+    ./training/step2_reward_model_finetuning/training_scripts/opt/single_node/
 cp /mnt/block-storage/mrt/scripts/step2_single_node_run.sh \
-    ./training/step3_rlhf_finetuning/training_scripts/single_node/
+    ./training/step3_rlhf_finetuning/training_scripts/opt/single_node/
 
 ## Set data.
 mkdir ./data
@@ -122,15 +122,19 @@ mv ./data/*.eval.json ./data/eval.json
 ## RLHF step2.
 # cd ../step2_reward_model_finetuning/
 cd ./training/step2_reward_model_finetuning/
-bash ./training_scripts/single_node/step2_single_node_run.sh 
+bash ./training_scripts/opt/single_node/step2_single_node_run.sh 
 
 ## RLHF step3.
 cd ../step3_rlhf_finetuning/
-bash ./training_scripts/single_node/step3_single_node_run.sh \
+bash ./training_scripts/opt/single_node/step3_single_node_run.sh \
     $PRETRAINED_MODEL_NAME ../step2_reward_model_finetuning/output 2 2
 
 ## Copy outputs.
 cd /mnt/block-storage/mrt
+
+cp -rf ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step2_rlhf_finetuning/step2_tensorboard/ \
+    ./assets/$PRETRAINED_MODEL_NAME_SOFT
+
 mkdir -p ./assets/$PRETRAINED_MODEL_NAME_SOFT/actor_ema
 cp -rf ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step3_rlhf_finetuning/output/actor_ema/ \
     ./assets/$PRETRAINED_MODEL_NAME_SOFT
