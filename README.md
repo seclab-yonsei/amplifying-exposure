@@ -324,12 +324,8 @@ python eval.py --model-file mymodel.pth --benchmark imagenet
 
 You can get fine-tuned model weights and extracted generations from our anonymous google drive. We will release the weights publicly on huggingface hub after under review.
 
-- [OPT-125M]()
-- [OPT-350M]()
-- [OPT-1.3B]()
-- [OPT-2.7B]()
-- [OPT-6.7B]()
-- [OPT-13B]()
+- [Model Weights (for huggingface transformers type)](https://drive.google.com/drive/folders/1iasgIIWFzZItFdPilfn2FJSM1LpbocIq?usp=sharing)
+- [Extracted Files (from reference & fine-tuned models)](https://drive.google.com/drive/folders/1HFFMtcGXwkKWSFfv8kemyxHv3YCxlDY0?usp=sharing)
 
 <!-- >📋  Give a link to where/how the pretrained models can be downloaded and how they were trained (if applicable).  Alternatively you can have an additional column in your results table with a link to the models. -->
 
