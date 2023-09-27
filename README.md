@@ -347,6 +347,26 @@ Here, *ref* refers to the reference model without fine-tuning, and *tuned* refer
 
 <!-- >📋  Include a table of results from your paper, and link back to the leaderboard for clarity and context. If your main result is a figure, include that figure and link to the command or notebook to reproduce it.  -->
 
+## Reference
+
+```latex
+@article{mitchell2023detectgpt,
+  title={Detectgpt: Zero-shot machine-generated text detection using probability curvature},
+  author={Mitchell, Eric and Lee, Yoonho and Khazatsky, Alexander and Manning, Christopher D and Finn, Chelsea},
+  journal={arXiv preprint arXiv:2301.11305},
+  year={2023}
+}
+
+@article{ouyang2022training,
+  title={Training language models to follow instructions with human feedback},
+  author={Ouyang, Long and Wu, Jeffrey and Jiang, Xu and Almeida, Diogo and Wainwright, Carroll and Mishkin, Pamela and Zhang, Chong and Agarwal, Sandhini and Slama, Katarina and Ray, Alex and others},
+  journal={Advances in Neural Information Processing Systems},
+  volume={35},
+  pages={27730--27744},
+  year={2022}
+}
+```
+
 <!-- ## Contributing
 
 >📋  Pick a licence and describe how to contribute to your code repository.  -->
