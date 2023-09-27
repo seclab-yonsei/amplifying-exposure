@@ -121,6 +121,8 @@ mv ./data/*.eval.json ./data/eval.json
 
 ## RLHF step2.
 # cd ../step2_reward_model_finetuning/
+sudo rm -rf /tmp/data_files/*
+
 cd ./training/step2_reward_model_finetuning/
 bash ./training_scripts/opt/single_node/step2_single_node_run.sh 
 
@@ -132,8 +134,11 @@ bash ./training_scripts/opt/single_node/step3_single_node_run.sh \
 ## Copy outputs.
 cd /mnt/block-storage/mrt
 
-cp -rf ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step2_rlhf_finetuning/step2_tensorboard/ \
-    ./assets/$PRETRAINED_MODEL_NAME_SOFT
+mkdir -p ./assets/$PRETRAINED_MODEL_NAME_SOFT/step2
+cp -f ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step2_reward_model_finetuning/output/training-*.log \
+    ./assets/$PRETRAINED_MODEL_NAME_SOFT/step2
+cp -rf ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step2_reward_model_finetuning/step2_tensorboard/ \
+    ./assets/$PRETRAINED_MODEL_NAME_SOFT/step2
 
 mkdir -p ./assets/$PRETRAINED_MODEL_NAME_SOFT/actor_ema
 cp -rf ./DeepSpeedExamples/applications/DeepSpeed-Chat/training/step3_rlhf_finetuning/output/actor_ema/ \

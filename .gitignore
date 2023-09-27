@@ -6,6 +6,13 @@ ckpt
 __archive__
 assets
 DeepSpeedExamples/
+*.pdf
+out/
+final_result_json/
+256/
+combined/
+ext/
+my_run.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
