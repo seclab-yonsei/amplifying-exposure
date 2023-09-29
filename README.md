@@ -15,11 +15,18 @@ To perform PPO fine-tuning, at least two GPUs with 32GB VRAM are required (*e.g.
 
 ## Requirements
 
+This repository requires a python 3.10 or higher environment:
+
+```bash
+python -V
+>>> Python 3.10.11
+```
+
 To install requirements:
 
 ```bash
 pip install --upgrade pip
-pip install torch transformers easydict tqdm scikit-learn pandas tensorboard
+pip install torch transformers easydict tqdm scikit-learn pandas==2.0 tensorboard
 DS_BUILD_OPS=0 pip install transformers[deepspeed]
 sudo apt-get install -y libaio-dev
 ```
@@ -132,7 +139,7 @@ Finally, we compute the perturbation discrepancy based on the log likelihood for
 ```bash
 deepspeed --num_gpus=2 detectgpt.py \
     --pretrained_model_name facebook/opt-1.3b \
-    --n_generated_samples 100 \
+    --n_generated_samples 100_000 \
     --batch_size 128 \
     --n_perturbed_samples 10 \
     --test_size 0.2 \
