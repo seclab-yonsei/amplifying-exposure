@@ -299,18 +299,18 @@ Finally, we will have the following files ready to go:
 │   ├── [446K]  merges.txt
 │   ├── [2.5G]  pytorch_model.bin
 │   └── [780K]  vocab.json
-├── [146M]  facebook_opt-1.3b.100000.20230927-114523.extract.json
+├── [146M]  facebook_opt-1.3b.100000.20230927-114523.extract.json (<- !! EXTRACTED FROM REFERENCE LM !!)
 ├── [112M]  facebook_opt-1.3b.100000.20230927-114523.json
 ├── [2.2G]  facebook_opt-1.3b.100000.20230927-114523.perturb.detectgpt.json
 ├── [2.2G]  facebook_opt-1.3b.100000.20230927-114523.perturb.json
 ├── [ 22M]  facebook_opt-1.3b.100000.20230927-114523.perturb.pairs.eval.json
 ├── [ 88M]  facebook_opt-1.3b.100000.20230927-114523.perturb.pairs.train.json
-└── [141M]  facebook_opt-1.3b_actor_ema.100000.20230928-123456.extract.json
+└── [141M]  facebook_opt-1.3b_actor_ema.100000.20230928-123456.extract.json (<- !! EXTRACTED FROM FINE-TUNED LM !!)
 ```
 
 ## Evaluation
 
-To perform an evaluation of the extracted files, please refer to the [following repository](https://github.com/google-research/deduplicate-text-datasets).
+To perform an evaluation of the extracted files, please refer to the [following repository](https://github.com/google-research/deduplicate-text-datasets). See [this issue](https://github.com/google-research/deduplicate-text-datasets/issues/3) for how to compare the two datasets.
 
 <!-- To evaluate my model on ImageNet, run:
 
