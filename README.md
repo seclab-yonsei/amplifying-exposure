@@ -1,6 +1,7 @@
 # Amplifying Exposure
 
-This repository is the official implementation of *Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships*, the under review as a conference paper at ICLR 2024.
+This repository is the official implementation of our paper, '*Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships*.'
+<!-- This repository is the official implementation of our paper, '*Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships*', the under review as a conference paper at ICLR 2024.-->
 <!-- [Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships]().  -->
 
 ![graphical_abstract](./figs/graphical_abstract.png)
@@ -372,6 +373,12 @@ Here, *ref* refers to the reference model without fine-tuning, and *tuned* refer
   pages={27730--27744},
   year={2022}
 }
+```
+
+## Citation
+
+```latex
+TBD
 ```
 
 <!-- ## Contributing
