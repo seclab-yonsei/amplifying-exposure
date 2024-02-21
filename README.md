@@ -1,6 +1,6 @@
 # Amplifying Exposure
 
-This repository is the official implementation of our paper, '*Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships*.'
+This repository is the official implementation of our paper, '[*Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships*](https://arxiv.org/abs/2402.12189).'
 <!-- This repository is the official implementation of our paper, '*Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships*', the under review as a conference paper at ICLR 2024.-->
 <!-- [Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships]().  -->
 
@@ -378,7 +378,14 @@ Here, *ref* refers to the reference model without fine-tuning, and *tuned* refer
 ## Citation
 
 ```latex
-TBD
+@misc{oh2024amplifying,
+      title={Amplifying Training Data Exposure through Fine-Tuning with Pseudo-Labeled Memberships}, 
+      author={Myung Gyo Oh and Hong Eun Ahn and Leo Hyun Park and Taekyoung Kwon},
+      year={2024},
+      eprint={2402.12189},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
+}
 ```
 
 <!-- ## Contributing
